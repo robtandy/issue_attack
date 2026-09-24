@@ -5,7 +5,8 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: write    # create the GitHub release
+  id-token: write   # npm trusted publishing (OIDC)
 
 jobs:
   release:
@@ -56,12 +57,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/* --title "issue-attack ${GITHUB_REF_NAME#v}" --generate-notes
 
+      # Trusted publishing (OIDC): npm proves this workflow's identity to the
+      # registry — no stored tokens. Requires npm >= 11.5.1 (Node 22 bundles
+      # npm 10, so upgrade first) and the package linked in npm settings.
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN secret is not set — skipping npm publish"
+          v="${GITHUB_REF_NAME#v}"
+          if npm view "issue-attack@$v" version >/dev/null 2>&1; then
+            echo "issue-attack@$v is already on npm — skipping publish"
             exit 0
           fi
+          npm install -g npm@11 >/dev/null
           npm publish --access public

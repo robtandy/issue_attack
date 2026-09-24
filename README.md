@@ -254,12 +254,19 @@ cross-compiles standalone binaries (macOS arm64/x64, Linux x64/arm64),
 smoke-tests one, attaches them with `.sha256` checksums to a GitHub Release,
 and publishes the npm package.
 
-- **npm publish** requires an `NPM_TOKEN` repository secret (npm Automation
-  access token). Without it, releases ship binaries but skip npm.
+- **npm publish** uses [trusted publishing](https://docs.npmjs.com/trusted-publishers/)
+  (OIDC): CI proves its identity to npm with short-lived tokens — no access
+  tokens stored anywhere. One-time bootstrap, because npm can't link a trusted
+  publisher until the package name exists:
+  1. `npm login`, then `npm publish` once locally — this claims the name
+  2. npmjs.com → package → Settings → Trusted publishing → link this
+     repository (`robtandy/issue_attack`) and workflow file `release.yml`,
+     with publish allowed
 - **Binary users** update by re-running the `curl ... install.sh | sh`
   one-liner from [Install](#install).
 - Tag names must match `package.json` (`v0.3.1` ↔ `0.3.1`) — `npm version`
-  guarantees this, and the workflow enforces it.
+  guarantees this, and the workflow enforces it. The npm step skips versions
+  already on npm, so re-tagging to re-ship binaries is safe.
 
 ## License
 
