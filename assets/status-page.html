@@ -58,6 +58,7 @@
   .card.failed { border-left-color: var(--red); }
   .card.timeout { border-left-color: var(--orange); }
   .card.stopped { border-left-color: var(--gray); }
+  .card.unclaimed { border-left-color: var(--purple); }
 
   .card .top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12.5px; }
   .chip { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; border: 1px solid; }
@@ -67,6 +68,7 @@
   .chip.failed { color: var(--red); border-color: var(--red); }
   .chip.timeout { color: var(--orange); border-color: var(--orange); }
   .chip.stopped { color: var(--gray); border-color: var(--gray); }
+  .chip.unclaimed { color: var(--purple); border-color: var(--purple); }
   .top .ago { margin-left: auto; color: var(--dim); white-space: nowrap; }
 
   .card .title { font-size: 15px; font-weight: 600; line-height: 1.35; }
@@ -78,6 +80,7 @@
     padding: 6px 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .card .hint { font-size: 12.5px; color: var(--yellow); }
+  .card .hint.conflict { color: var(--red); }
   .card .hint code { font-family: var(--mono); font-size: 11.5px; }
   /* generous tap targets for touch */
   .card .title a, .card .hint a, .card .meta a { padding: 3px 0; }
@@ -200,6 +203,31 @@ function renderHeader() {
   }
 }
 
+function unclaimedCard(u) {
+  const el = document.createElement("div");
+  el.className = "card unclaimed";
+
+  const top = document.createElement("div");
+  top.className = "top";
+  const chip = document.createElement("span");
+  chip.className = "chip unclaimed";
+  chip.textContent = "unclaimed";
+  top.appendChild(chip);
+  const agoEl = document.createElement("span");
+  agoEl.className = "ago";
+  agoEl.textContent = "updated " + ago(u.updatedAt);
+  top.appendChild(agoEl);
+  el.appendChild(top);
+
+  const t = document.createElement("div");
+  t.className = "title";
+  t.innerHTML = '<a href="' + esc(u.issueUrl) + '" target="_blank" rel="noopener">#' +
+    u.issue + " — " + esc(u.title || "(untitled)") + "</a>";
+  el.appendChild(t);
+
+  return el;
+}
+
 function card(a) {
   const el = document.createElement("div");
   el.className = "card " + a.status;
@@ -255,6 +283,11 @@ function card(a) {
     hint.className = "hint";
     hint.innerHTML = "⏸ waiting for you — <a href=\"" + esc(a.issueUrl) + "\" target=\"_blank\" rel=\"noopener\">reply on the issue</a>, then run <code>issue_attack resume " + a.issue + "</code>";
     el.appendChild(hint);
+  } else if (a.status === "succeeded" && a.conflicts) {
+    const hint = document.createElement("div");
+    hint.className = "hint conflict";
+    hint.innerHTML = "⚠️ PR conflicts with the base branch (it moved) — run <code>issue_attack resume " + a.issue + "</code> to have the agent merge and resolve";
+    el.appendChild(hint);
   } else if (a.status === "running") {
     const hint = document.createElement("div");
     hint.className = "hint";
@@ -271,28 +304,66 @@ function render() {
   if (dataError || !data) { sections.innerHTML = ""; return; }
 
   const agents = data.agents ?? [];
-  const groups = [
-    ["Running now", (a) => a.status === "running"],
-    ["Awaiting you — blocked", (a) => a.status === "blocked"],
-    ["Finished", (a) => !["running", "blocked"].includes(a.status)],
-  ];
+  const unclaimed = data.unclaimed ?? [];
 
   sections.innerHTML = "";
   let any = false;
-  for (const [label, match] of groups) {
-    const items = agents.filter(match)
-      .sort((x, y) => String(y.lastAgentUpdateAt ?? "").localeCompare(String(x.lastAgentUpdateAt ?? "")))
-      .slice(0, label === "Finished" ? 12 : 100);
-    if (!items.length) continue;
+
+  // Show unclaimed issues first
+  if (unclaimed.length > 0) {
     any = true;
     const h = document.createElement("h2");
-    h.innerHTML = esc(label) + ' <span class="count">' + items.length + "</span>";
+    h.innerHTML = 'Ready to claim <span class="count">' + unclaimed.length + "</span>";
     sections.appendChild(h);
     const grid = document.createElement("div");
     grid.className = "grid";
-    for (const a of items) grid.appendChild(card(a));
+    const sorted = unclaimed.slice().sort((x, y) => String(y.updatedAt ?? "").localeCompare(String(x.updatedAt ?? "")));
+    for (const u of sorted) grid.appendChild(unclaimedCard(u));
     sections.appendChild(grid);
   }
+
+  // Show running agents
+  const running = agents.filter((a) => a.status === "running")
+    .sort((x, y) => String(y.lastAgentUpdateAt ?? "").localeCompare(String(x.lastAgentUpdateAt ?? "")));
+  if (running.length > 0) {
+    any = true;
+    const h = document.createElement("h2");
+    h.innerHTML = 'Running now <span class="count">' + running.length + "</span>";
+    sections.appendChild(h);
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    for (const a of running) grid.appendChild(card(a));
+    sections.appendChild(grid);
+  }
+
+  // Show blocked agents
+  const blocked = agents.filter((a) => a.status === "blocked")
+    .sort((x, y) => String(y.lastAgentUpdateAt ?? "").localeCompare(String(x.lastAgentUpdateAt ?? "")));
+  if (blocked.length > 0) {
+    any = true;
+    const h = document.createElement("h2");
+    h.innerHTML = 'Awaiting you — blocked <span class="count">' + blocked.length + "</span>";
+    sections.appendChild(h);
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    for (const a of blocked) grid.appendChild(card(a));
+    sections.appendChild(grid);
+  }
+
+  // Show finished agents (limit to 12)
+  const finished = agents.filter((a) => !["running", "blocked"].includes(a.status))
+    .sort((x, y) => String(y.lastAgentUpdateAt ?? "").localeCompare(String(x.lastAgentUpdateAt ?? "")));
+  if (finished.length > 0) {
+    any = true;
+    const h = document.createElement("h2");
+    h.innerHTML = 'Finished <span class="count">' + finished.length + "</span>";
+    sections.appendChild(h);
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    for (const a of finished.slice(0, 12)) grid.appendChild(card(a));
+    sections.appendChild(grid);
+  }
+
   if (!any) {
     const e = document.createElement("div");
     e.className = "empty";
