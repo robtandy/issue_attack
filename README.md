@@ -1,65 +1,14 @@
 # issue-attack
 
-Autonomous CLI agents that pick up GitHub issues, work them independently in
-isolated git worktrees, and open pull requests — powered by
-[pi](https://pi.dev) as the agent harness.
+Autonomous AI agents that pick up GitHub issues, work them independently, and open pull requests.
 
-```
-$ issue-attack attack --max 3 --watch
-attacking robtandy/issue-attack — label: issue-attack-ready max: 3 (watch mode)
-[#12] picked up: Migrate config loader to ESM
-[#12] attempt 1 on branch agent/issue-12
-[#12] claimed issue 12 as robtandy
-[#12] pi session ia-issue-12 (pid 4242)
-[#12] → bash gh issue view 12 --comments
-[#12] → bash rg "require\\(" lib/
-[#12] → edit lib/config.js
-[#12] ✔ PR opened: https://github.com/robtandy/issue_attack/pull/13
-```
-
-Each agent:
-
-- **runs in its own git worktree** on branch `agent/issue-<n>` — agents never
-  share a checkout, never touch your working tree, and never push to the base branch
-- **works unattended** — no prompts, no questions, no human in the loop
-- **comments on the issue when blocked** (structured `BLOCKED.md` protocol) and
-  can be **resumed later** with your answers
-- **opens a PR** (`Closes #<n>`) when finished, with summary, verification notes,
-  and an `agent` label
-- lives under **hard budgets** (time, model cost, tokens) with a graceful
-  "wrap up" steer before any hard abort
-- can be **steered live** (`issue-attack steer 12 "use an env var, not the DB"`),
-  **by commenting on the issue** (comments are picked up in ~30s and forwarded
-  to the running agent), and **stopped** (`issue-attack stop 12`)
-- publishes a **live status dashboard** to GitHub Pages
-  (`issue-attack page init`) — mobile-friendly, showing every agent, what it's
-  doing, how long since it last acted, and links straight into the GitHub
-  conversation
-- survives **asynchronous base drift**: workers merge the base branch before
-  opening their PR, and the supervisor verifies mergeability — a PR that
-  conflicts because main moved triggers a bounded merge-and-resolve repair
-  loop (merges only, never rebase/force-push), with conflict warnings on the
-  issue and dashboard if repair can't finish
-
-## How it works, in one paragraph
-
-`issue-attack` is a supervisor. It claims issues (assignee + label mutex),
-creates a worktree per issue, and spawns a `pi --mode rpc` worker inside it with
-a strict *worker contract* appended to its system prompt: understand the issue,
-implement the smallest correct change, verify, push, open a PR — or write
-`BLOCKED.md` and stop. The supervisor watches the worker's event stream,
-enforces budgets, trips on dangerous commands, posts heartbeat/progress
-comments to the issue, and classifies the outcome (`succeeded` / `blocked` /
-`timeout` / `failed`) — each with the right labels and comments so humans
-always know what happened and what to do next.
-
-Full design, failure modes, and rationale: [DESIGN.md](DESIGN.md).
+Each agent runs in its own isolated git worktree on branch `agent/issue-<n>`, works unattended, and opens a PR (`Closes #<n>`) when finished. Issues can be steered live via comments, and agents write `BLOCKED.md` when they need input.
 
 ## Requirements
 
 - Node.js >= 22
-- `pi` on PATH, authenticated (`pi` → `/login`) — [install pi](https://pi.dev)
-- `gh` on PATH, authenticated (`gh auth login`) with push access to the repo
+- `pi` on PATH, authenticated — [install pi](https://pi.dev)
+- `gh` on PATH, authenticated with push access to your repo
 - A git repository with a GitHub remote
 
 ## Install
@@ -75,174 +24,176 @@ git clone https://github.com/robtandy/issue-attack
 cd issue-attack && npm link
 ```
 
-## Quickstart
+## Onboarding a New Repository
+
+To start using issue-attack on a repository:
 
 ```bash
 cd your-repo
-issue-attack init                  # config, labels, gitignore, account pin (safe to re-run)
-issue-attack doctor                # verify pi/gh/git/labels/account are all ready
-
-# Create work for the fleet (uses the repo's pinned account) and attack it:
-issue-attack new "Fix the config loader" --body "Details…"   # labeled issue-attack-ready
-issue-attack attack --max 3        # or: run <issue#> for one, in the foreground
-issue-attack attack --max 3 --watch # keep polling for newly labeled issues
+issue-attack init                  # set up labels, config, and pin your account
+issue-attack doctor                # verify everything is ready
 ```
 
-## Accounts
+That's it! You now have:
+- `.issue_attack/config.json` — local configuration (your account, labels, budgets)
+- Labels added to your repo (`issue-attack-ready`, `issue-attack-claimed`, etc.)
+- A git hook in future worktrees to add commit attribution
 
-If you have multiple GitHub accounts (say an enterprise account and a personal
-one), `gh` commands use whichever is *active* — and agents inherit it. To make
-a repo always use the right account, pin it:
+## Using issue-attack
+
+Create an issue and let agents work on it:
 
 ```bash
-issue_attack account robtandy      # pin; `init` pins automatically on first run
+# Create a new issue (auto-labeled as ready for agents)
+issue-attack new "Fix the config loader" --body "Details…"
+
+# Run agents: 3 at a time, in watch mode (polling for new issues)
+issue-attack attack --max 3 --watch
+
+# Or work a single issue in the foreground
+issue-attack run 12
 ```
 
-Every issue-attack command — including the agents it spawns and their `gh`
-calls — then runs as that account (via a per-process `GH_TOKEN`), regardless of
-which account `gh` currently has active. `issue-attack account` shows the
-pin and the effective login; `doctor` reports both. The pin lives in
-`.issue_attack/config.json` (local to your machine).
-
-When an agent finishes you get a PR (`Closes #12`). When it's blocked you get
-a comment listing exactly what it needs — answer in the issue, then:
+When agents finish, they open PRs. If blocked, they comment on the issue with exactly what they need — answer there, then:
 
 ```bash
 issue-attack resume 12             # agent picks up where it left off
 ```
 
-## Commands
+## Common Commands
 
-| Command | What it does |
+| Command | Purpose |
 |---|---|
-| `init` | Create `.issue_attack/config.json`, repo labels, gitignore entries, pin the GitHub account |
-| `account [login]` | Show or pin the GitHub account used for this repo |
-| `doctor` | Check node, pi, gh auth, repo, labels, config, models, account |
-| `list [--label L]` | Show claimable issues (default label `issue-attack-ready`) |
-| `new <title> [--body t \| --body-file f] [--label a,b] [--no-ready]` | Create an issue (labeled `issue-attack-ready` by default) |
-| `run <issue#> [--model m] [--fresh]` | Work one issue in the foreground |
-| `attack [--max N] [--watch] [--label L] [--poll secs]` | Fleet: N agents concurrently, optionally polling for more |
-| `resume <issue#>` | Continue a blocked/failed/timed-out run with fresh issue comments |
-| `status [--json]` | Local fleet status (runs, outcomes, cost) |
-| `steer <issue#> <message>` | Live guidance to a running agent |
-| `stop <issue#> [--wait]` | Stop an agent, release the claim |
-| `log <issue#> [--raw] [--lines n]` | Inspect a run's event log |
-| `page init` / `publish` / `url` | Publish / republish / print the GitHub Pages status dashboard |
-| `cleanup [--issue n] [--purge]` | Remove worktrees of finished runs; `--purge` also drops sessions, logs, branches, state |
+| `init` | Set up repo (one-time) |
+| `doctor` | Verify everything is ready |
+| `new <title> [--body t]` | Create an issue for agents |
+| `run <issue#>` | Work one issue (foreground) |
+| `attack [--max N] [--watch]` | Run a fleet of agents |
+| `resume <issue#>` | Continue a blocked agent |
+| `stop <issue#>` | Stop a running agent |
+| `status` | See all running and completed agents |
+| `log <issue#>` | View a run's detailed log |
 
-Use `ia` as a shorthand alias for `issue-attack` in any of the above commands.
+Full command reference: `issue-attack help`
 
-Exit codes: `0` for `succeeded`/`blocked`/`stopped`, `1` for `failed`/`timeout`/`skipped` — scriptable.
+## Advanced Topics
 
-## Configuration
+### Accounts
 
-`.issue_attack/config.json` (created by `init`, per repository):
+To pin a GitHub account for a repo (useful for multiple accounts):
 
-```jsonc
-{
-  "label": "issue-attack-ready",        // issues with this label are claimable
-  "claimedLabel": "issue-attack-claimed",
-  "blockedLabel": "issue-attack-blocked",
-  "doneLabel": "issue-attack-done",
-  "prLabel": "issue-attack",            // label applied to agent-opened PRs
-
-  "maxConcurrent": 3,            // fleet size
-  "maxAttempts": 2,              // supervised attempts per run (auto-retry)
-  "pollSeconds": 60,             // --watch polling interval
-
-  "timeBudgetMinutes": 45,       // wall-clock budget per run
-  "softBudgetRatio": 0.8,         // steer "wrap up" at 80% of budget
-  "costBudgetUsd": 5.0,          // model cost budget per run (null = off)
-  "maxTokens": null,              // token budget (null = off)
-
-  "heartbeatMinutes": 10,        // progress comment interval (0 = off)
-  "recentComments": 5,           // comments inlined into the task prompt
-  "commentSteerSeconds": 30,    // issue comments steer live agents (0 = off)
-
-  "statusBranch": "gh-pages",   // dashboard branch (GitHub Pages source)
-  "statusPublishMinutes": 2,     // dashboard refresh cadence (minutes; 0 disables)
-
-  "model": null,                  // pi model for workers, e.g. "sonnet:high"
-  "baseBranch": null,             // default: repo default branch
-  "prDraft": false,
-  "approve": true,                // workers pass -a (trust project config in worktree)
-  "noExtensions": false,
-  "extraFlags": [],               // extra flags for pi
-
-  "ghAccount": null                // login pinned for this repo (set via `account`/`init`)
-}
+```bash
+issue-attack account robtandy      # pin this repo to always use this account
+issue-attack account               # show current pin
 ```
 
-Everything lives under `.issue_attack/` (gitignored): `worktrees/`,
-`sessions/` (resumable pi sessions), `logs/` (full RPC event streams),
-`inbox/` + `stop/` (the control channel), `state.json` (fleet registry).
+### The Blocked Loop
 
-## Live status dashboard
+When an agent can't proceed, it writes `BLOCKED.md` on the issue with what it needs. You answer in the issue comments, then:
 
-`issue-attack page init` publishes a self-contained dashboard to GitHub Pages
-(served from the `gh-pages` branch of your repo):
+```bash
+issue-attack resume 12             # agent continues from where it stopped
+```
 
-- every agent run: state, attempt, branch, PR, cost, tokens, and the
-  agent's **current action**
-- **time since the agent last acted** and **time since the page data was
-  updated** (human-readable, ticking) — a stale clock honestly tells you the
-  supervisor went offline
-- links straight into each GitHub issue so you can read the conversation and
-  **comment to steer the running agent** (picked up within `commentSteerSeconds`,
-  default 30s)
-- responsive: single-column cards on phones, grid on desktop
+### Live Steering
 
-While agents run (or `--watch` is polling), the supervisor republishes at most
-every `statusPublishMinutes`; the page itself refetches every 10s. Deploy once
-with `page init`; get the URL anytime with `page url`.
+Steer a running agent via command or by commenting on the issue (picked up within ~30s):
+
+```bash
+issue-attack steer 12 "use an env var instead of hardcoding the DB"
+```
+
+### Configuration
+
+Configuration lives in `.issue_attack/config.json` (created by `init`). Key settings:
+
+- `label`: issues with this label are claimable (default: `issue-attack-ready`)
+- `maxConcurrent`: fleet size (default: 3)
+- `timeBudgetMinutes`: wall-clock budget per run (default: 45)
+- `costBudgetUsd`: model cost budget per run (default: 5.0)
+- `model`: AI model to use (default: auto-selected by pi)
+
+Run `issue-attack doctor` to see all effective settings.
+
+### Status Dashboard
+
+Publish a live GitHub Pages dashboard showing all agent runs:
+
+```bash
+issue-attack page init      # one-time setup
+issue-attack page url       # get the dashboard URL
+```
+
+The dashboard shows each agent's status, cost, and current action, updating as they work.
+
+### Full Command Reference
+
+```
+issue-attack init [--repo r]        set up a repo (one-time)
+issue-attack doctor                 verify everything is ready
+issue-attack account [login]        show or pin the GitHub account
+issue-attack list [--label L]       show claimable issues
+issue-attack new <title> [--body t] create an issue
+issue-attack run <issue#> [opts]    work one issue (foreground)
+issue-attack attack [opts]          run a fleet (background)
+  --max N                           max concurrent agents
+  --watch                           keep polling for new issues
+  --label L                         custom label (default: issue-attack-ready)
+issue-attack resume <issue#>        continue a blocked agent
+issue-attack status [--json]        show all runs and outcomes
+issue-attack steer <n> <msg>        live guidance to a running agent
+issue-attack stop <issue#> [--wait] stop a running agent
+issue-attack log <issue#> [--raw]   view a run's log
+issue-attack cleanup [--purge]      clean up worktrees
+issue-attack page init/publish/url  manage the dashboard
+```
+
+Use `ia` as a shorthand: `ia attack --max 3 --watch`
+
+Exit codes: `0` for success/blocked/stopped, `1` for failed/timeout/skipped (scriptable).
+
+## How It Works
+
+`issue-attack` is a supervisor that claims issues, spawns isolated agents in git
+worktrees, and monitors their progress. Each agent:
+
+- runs on branch `agent/issue-<n>` in its own worktree
+- has a **strict contract** in its system prompt: understand the issue, implement
+  the smallest correct change, verify, commit, push, open a PR — or write `BLOCKED.md`
+- works unattended with no human input
+- is constrained by time/cost budgets and a command safety filter
+- can be steered live via `steer` or issue comments
+- publishes its event stream so the supervisor can monitor and enforce budgets
+
+When finished: you get a PR (`Closes #<n>`) or a `BLOCKED.md` comment if the
+agent needs input.
+
+For full architecture and safety details, see [DESIGN.md](DESIGN.md).
 
 ## Attribution
 
-All issue_attack activity is marked so anyone can tell it from your own:
+All issue-attack activity is clearly marked:
 
-- **Agent commits** end with a
-  `Co-authored-by: issue-attack <issue-attack@users.noreply.github.com>`
-  trailer, added by a git hook the supervisor installs in every agent worktree
-  (worktree-scoped — your own commits in the main checkout are never touched).
-- **PRs** carry the `[agent]` title prefix, the `issue-attack` label, and a
-  footer identifying the tool and the issue it worked. The supervisor enforces
-  the prefix and footer even when an agent forgets.
-- **Issue comments** from the supervisor are self-describing and link back to
-  the tool.
+- **Agent commits** are tagged with `Co-authored-by: issue-attack`
+- **PRs** get the `[agent]` prefix and `issue-attack` label
+- **Supervisor comments** are self-describing
 
-Prefer a fully distinct identity? Pin a dedicated machine account with
-`issue_attack account <login>` and all commits/PRs/comments post as that
-account instead. (A GitHub-App bot identity with the BOT badge is roadmap.)
+To use a distinct GitHub account for all agent activity, pin it:
 
-## The blocked loop
+```bash
+issue-attack account my-bot-account
+```
 
-1. Agent hits something it genuinely can't resolve → writes `BLOCKED.md`
-   (what it tried, exactly what it needs) → stops.
-2. Supervisor comments it on the issue, labels it `issue-attack-blocked`, releases
-   the claim, **keeps the worktree + session**.
-3. You answer in the issue.
-4. `issue-attack resume <n>` re-claims, feeds your answers + prior context to
-   the same agent, and it continues where it stopped.
+## Safety
 
-Agents are instructed to prefer a defensible assumption + a note in the PR
-over blocking; `BLOCKED.md` is for genuinely unanswerable situations.
+Workers are confined to their branch and worktree and never push to the base
+branch, force-push, edit the issue itself, or touch secrets. They have a command
+safety filter and hard budgets (time, cost). Scope your `gh` and `pi` credentials
+accordingly (a dedicated account or fine-grained PAT is recommended).
 
-## Safety model
-
-- Workers are confined to their branch and worktree (enforced by the worker
-  contract, a reactive command tripwire with steer-then-abort escalation, and
-  the supervisor's own verification of every outcome).
-- They never push to the base branch, force-push, merge/close PRs, edit
-  issues/labels/settings, or touch secrets — see the policy denylist in
-  [`lib/policy.js`](lib/policy.js).
-- All credentials they hold are the ones you gave `gh` and `pi` — scope them
-  accordingly (a dedicated account or fine-grained PAT is a good idea).
-- Every run leaves a complete audit trail: local event log + pi session +
-  the issue thread itself.
-
-This is a tripwire, not a sandbox; read [the safety section of
-DESIGN.md](DESIGN.md#safety--trust-model) before pointing it at anything
-important.
+Every run leaves a complete audit trail: local event log, pi session, and the
+issue thread. This is a tripwire, not a sandbox — read
+[DESIGN.md#safety--trust-model](DESIGN.md#safety--trust-model) for details.
 
 ## Development
 
