@@ -309,7 +309,26 @@ with an in-process pi extension that can veto tool calls pre-execution.
 - **`gh` extension packaging**: `gh issue-attack` subcommand via gh's
   extension mechanism.
 
-## 13. Alternatives considered
+## 13. Field notes from the first live run
+
+The first live end-to-end run (this repo, issue #1, a cheap model) surfaced two
+real bugs within minutes — both now fixed and covered by the agent's own tests:
+
+- **Long argv is fragile.** Workers' system-prompt contract was passed as an
+  inline `--append-system-prompt` argument; on this managed laptop, an
+  endpoint agent SIGKILLed any `pi` process whose argv exceeded ~1KB. The fix:
+  write the contract to a file in the session dir and pass its path (the
+  documented form). Long *content* belongs in files or stdin, never argv.
+- **Policy must check command position, not raw text.** `gh pr create --body`
+  quoting test cases like `git push --force` (as *data*) tripped the denylist
+  and aborted a healthy run. The fix: split commands into shell statements,
+  cut at the first string literal, and gate on capable command prefixes before
+  applying rules.
+
+Both are the tripwire behaving exactly as designed — fail-safe — but each
+  false positive burns a run's budget, so precision matters.
+
+## 14. Alternatives considered
 
 - **In-process SDK instead of subprocess**: rejected — coupling supervisor
   lifetime to worker lifetime; the RPC contract is stable and gives us
