@@ -398,7 +398,40 @@ real bugs within minutes — both now fixed and covered by the agent's own tests
 Both are the tripwire behaving exactly as designed — fail-safe — but each
   false positive burns a run's budget, so precision matters.
 
-## 14. Alternatives considered
+## 14. Asynchronous base drift
+
+The fleet's defining hazard: an agent works for minutes in a worktree cut from
+base at claim time, while the human (or other agents' PRs) keep merging to
+base. Response, layer by layer:
+
+1. **Cut fresh**: every run does `git fetch origin <base>` and cuts its branch
+   from `origin/<base>` — never a stale local main.
+2. **Merge before PR (contract)**: workers must `git fetch` and
+   `git merge origin/<base>` before opening their PR, resolving conflicts
+   themselves (or BLOCKED.md if genuinely unresolvable). Merge only — never
+   rebase, never force-push — because the branch is already public and
+   force-push is policy-denied; a rebase would strand the agent.
+3. **Verified success (supervisor)**: `succeeded` requires an *open PR on the
+   branch*, checked from GitHub state — and now also its mergeability. If the
+   PR conflicts (`mergeable: false` / `mergeStateStatus: DIRTY`), the
+   supervisor does not stop there: it sends the agent a merge-and-resolve
+   prompt and keeps watching (bounded by `maxAttempts` and the run budget).
+   If repair can't complete, the outcome comment and the dashboard carry a
+   conflict warning with the exact `resume` command.
+4. **Resume syncs**: resumes instruct the agent to merge base first, since
+   blocked runs often sit long enough for base to move substantially.
+5. **BEHIND vs DIRTY**: a PR that is merely behind base (still mergeable) is
+   left alone — GitHub merges it fine. Repair targets conflicts, not
+   staleness; strict up-to-date-branch protection is repo policy, and with it
+   the repair loop covers that case too.
+
+Not handled yet (roadmap): base moving *after* a clean run ends — a post-run
+PR conflict watcher (periodic check that flips `conflicts` on the entry and
+comments once), and overlap-aware claiming (two agents editing the same files
+will still conflict; the repair loop resolves it, but serializing by touched
+paths would avoid the churn).
+
+## 15. Alternatives considered
 
 - **In-process SDK instead of subprocess**: rejected — coupling supervisor
   lifetime to worker lifetime; the RPC contract is stable and gives us
