@@ -24,6 +24,7 @@
   "files": [
     "bin",
     "lib",
+    "assets",
     "README.md",
     "DESIGN.md"
   ],

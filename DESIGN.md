@@ -209,6 +209,13 @@ Time is the always-accurate backstop.
 - `steer N "…"` → appends to `inbox/issue-N.jsonl` → runner forwards via RPC
   `steer` (mid-run) or `prompt` (idle). Arrives between the current tool call
   and the next model turn — exactly when an agent can absorb new information.
+- **Commenting on the issue also steers the live agent**: each runner polls its
+  issue's comments every `commentSteerSeconds` and forwards new comments (from
+  anyone except the supervisor's own gh account, and posted after the run
+  started) as `[ISSUE COMMENT]` steering messages. The issue thread becomes a
+  two-way channel: the agent's blocked questions and heartbeats flow out,
+  maintainer answers flow in — no terminal required, works from a phone via the
+  dashboard links.
 - `stop N` → stop marker → runner aborts, classifies `stopped`, releases the
   claim. Double Ctrl-C in the fleet does the same for all agents.
 - `status` reconciles the world (see §8) and prints the table; `--json` for
@@ -218,6 +225,55 @@ Time is the always-accurate backstop.
   with elapsed, tokens, cost, current action. Deleted when the run ends, so
   the thread keeps only its final outcome comment — heartbeat noise never
   accumulates.
+
+### 7a. Status page (GitHub Pages dashboard)
+
+`page init` publishes a dashboard and keeps it current:
+
+```
+supervisor ──publishStatus (throttled, serialized)──▶ git plumbing ──force push──▶ gh-pages
+   │  buildPayload: state.json + cached issue titles                        │
+   │  git hash-object ×2 → git mktree → git commit-tree (orphan root)      ▼
+   │                                                     GitHub Pages serves
+   └─ runner hooks: on claim, every tick (≤ statusPublishMinutes),             │
+      on terminal state (forced); fleet loop publishes each poll cycle  ◀── page polls
+                                                                            status.json every 10s
+```
+
+Design decisions:
+
+- **Actions-based deploys, not branch builds**: GitHub Pages "deploy from a
+  branch" is rate-limited to ~10 builds/hour — useless for a live dashboard.
+  `page init` converts the site to `build_type: workflow`, and the deploy
+  workflow ships *inside every status publish* (push-triggered workflows are
+  read from the pushed ref, so the status branch is fully self-contained —
+  nothing is ever committed to the default branch). Every push triggers an
+  Actions deploy (exempt from the Pages build limit) with `concurrency:
+  cancel-in-progress`, so the freshest state wins. End-to-end freshness ≈
+  `statusPublishMinutes` + ~30s of Actions runtime.
+- **Cadence philosophy**: publishes are minute-scale — the dashboard exists to
+  catch stalls, not to stream. A stall is visible from the per-agent
+  `lastAgentUpdateAt` delta regardless of publish frequency, and the header's
+  "data updated" clock stays honest either way.
+- **git plumbing, not a worktree**: every publish builds `index.html` +
+  `status.json` into a fresh orphan-root commit and force-pushes the status
+  branch. No checkout is touched, no history grows, and concurrent publishes
+  are serialized through a promise queue — a terminal-state publish is queued
+  behind an in-flight one, never dropped.
+- **`generatedAt` staleness is a feature**: the header pill shows how long ago
+  the data was refreshed. If the supervisor dies or the laptop sleeps, the
+  page turns stale — that is the honest, observable signal, exactly the
+  inverse of heartbeat systems that keep looking alive from cache.
+- **Per-agent `lastAgentUpdateAt`** is persisted from real RPC events (tool
+  starts, assistant turns), so "agent active 4m ago" distinguishes a working
+  agent from a stalled one at a glance.
+- **Title caching**: runners cache issue title/url into `state.json` at claim
+  time, so routine publishes need zero GitHub API calls; a bounded self-healing
+  enrichment fills gaps for pre-existing entries.
+- **Existing Pages sites are respected**: if the repo already serves Pages
+  from another branch, `page init` refuses to hijack it without `--force`.
+- **Single host per repo** for now: concurrent hosts would force-push over
+  each other's branch (last writer wins). Multi-host status merge is roadmap.
 
 ## 8. Failure modes
 
@@ -299,7 +355,8 @@ with an in-process pi extension that can veto tool calls pre-execution.
   and resume automatically (today: deliberate, manual).
 - **Multi-host fleets**: lease file in the repo or a GitHub-based lease
   (an issue comment with host id + heartbeat) so N machines share the queue
-  without the claim race back-off.
+  without the claim race back-off; status publishes would merge per-host
+  files instead of force-pushing a single branch.
 - **Review round**: after PR feedback (`/request-changes`), feed review
   comments into the same session and let the agent iterate.
 - **Cost dashboards**: aggregate session stats per repo/label/model.

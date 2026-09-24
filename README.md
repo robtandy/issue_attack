@@ -28,8 +28,13 @@ Each agent:
   and an `agent` label
 - lives under **hard budgets** (time, model cost, tokens) with a graceful
   "wrap up" steer before any hard abort
-- can be **steered live** (`issue_attack steer 12 "use an env var, not the DB"`)
-  and **stopped** (`issue_attack stop 12`)
+- can be **steered live** (`issue_attack steer 12 "use an env var, not the DB"`),
+  **by commenting on the issue** (comments are picked up in ~30s and forwarded
+  to the running agent), and **stopped** (`issue_attack stop 12`)
+- publishes a **live status dashboard** to GitHub Pages
+  (`issue_attack page init`) — mobile-friendly, showing every agent, what it's
+  doing, how long since it last acted, and links straight into the GitHub
+  conversation
 
 ## How it works, in one paragraph
 
@@ -101,6 +106,7 @@ issue_attack resume 12             # agent picks up where it left off
 | `steer <issue#> <message>` | Live guidance to a running agent |
 | `stop <issue#> [--wait]` | Stop an agent, release the claim |
 | `log <issue#> [--raw] [--lines n]` | Inspect a run's event log |
+| `page init` / `publish` / `url` | Publish / republish / print the GitHub Pages status dashboard |
 | `cleanup [--issue n] [--purge]` | Remove worktrees of finished runs; `--purge` also drops sessions, logs, branches, state |
 
 Exit codes: `0` for `succeeded`/`blocked`/`stopped`, `1` for `failed`/`timeout`/`skipped` — scriptable.
@@ -128,6 +134,10 @@ Exit codes: `0` for `succeeded`/`blocked`/`stopped`, `1` for `failed`/`timeout`/
 
   "heartbeatMinutes": 10,        // progress comment interval (0 = off)
   "recentComments": 5,           // comments inlined into the task prompt
+  "commentSteerSeconds": 30,    // issue comments steer live agents (0 = off)
+
+  "statusBranch": "gh-pages",   // dashboard branch (GitHub Pages source)
+  "statusPublishMinutes": 2,     // dashboard refresh cadence (minutes; 0 disables)
 
   "model": null,                  // pi model for workers, e.g. "sonnet:high"
   "baseBranch": null,             // default: repo default branch
@@ -141,6 +151,25 @@ Exit codes: `0` for `succeeded`/`blocked`/`stopped`, `1` for `failed`/`timeout`/
 Everything lives under `.issue_attack/` (gitignored): `worktrees/`,
 `sessions/` (resumable pi sessions), `logs/` (full RPC event streams),
 `inbox/` + `stop/` (the control channel), `state.json` (fleet registry).
+
+## Live status dashboard
+
+`issue_attack page init` publishes a self-contained dashboard to GitHub Pages
+(served from the `gh-pages` branch of your repo):
+
+- every agent run: state, attempt, branch, PR, cost, tokens, and the
+  agent's **current action**
+- **time since the agent last acted** and **time since the page data was
+  updated** (human-readable, ticking) — a stale clock honestly tells you the
+  supervisor went offline
+- links straight into each GitHub issue so you can read the conversation and
+  **comment to steer the running agent** (picked up within `commentSteerSeconds`,
+  default 30s)
+- responsive: single-column cards on phones, grid on desktop
+
+While agents run (or `--watch` is polling), the supervisor republishes at most
+every `statusPublishMinutes`; the page itself refetches every 10s. Deploy once
+with `page init`; get the URL anytime with `page url`.
 
 ## The blocked loop
 
