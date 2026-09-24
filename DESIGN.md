@@ -4,7 +4,8 @@ A supervisor that runs autonomous coding agents (pi harness) against GitHub
 issues: one agent per issue, each in an isolated git worktree, unattended,
 commenting on the issue when blocked, opening a PR when done.
 
-This document is the rationale and contract for the implementation in `lib/`.
+This document is the rationale and contract for the implementation in `src/`
+(TypeScript, compiled to `dist/` by `tsc` — see CONTRIBUTING.md).
 
 ---
 
@@ -135,7 +136,7 @@ State machine invariants:
 
 ## 4. The worker contract
 
-The heart of the system is the prompt in `lib/prompt.js`: a contract appended
+The heart of the system is the prompt in `src/lib/prompt.ts`: a contract appended
 to pi's system prompt. It encodes:
 
 - **Unattended-ness**: "no human is watching; your channels are commits, the
@@ -310,7 +311,7 @@ runs), never agent-declared failures — retry spend is a human decision.
 Layers, outside-in:
 
 1. **Contract** (system prompt): the rules the model should follow.
-2. **Tripwire** (`lib/policy.js`): every `bash`/`powershell` tool call the
+2. **Tripwire** (`src/lib/policy.ts`): every `bash`/`powershell` tool call the
    worker makes is checked against a denylist — force-push, push to base,
    branch deletion, checkout of base, `gh pr merge/close`, `gh issue
    close/edit`, repo/label/secret/workflow/release mutations, write-method
