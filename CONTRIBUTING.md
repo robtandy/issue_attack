@@ -29,8 +29,14 @@ Plain ESM, zero runtime dependencies. Just Node, git, and gh.
 npm test
 ```
 
-Tests live in `tests/` and use Node's built-in test runner. Add tests when
-you add or change behavior.
+Tests live in `tests/` and use Node's built-in test runner. To run a single
+test file:
+
+```bash
+node --test tests/policy.test.mjs
+```
+
+Add tests when you add or change behavior.
 
 ## Philosophy
 
