@@ -431,6 +431,16 @@ comments once), and overlap-aware claiming (two agents editing the same files
 will still conflict; the repair loop resolves it, but serializing by touched
 paths would avoid the churn).
 
+### Repair loop mechanics
+
+The conflict repair loop is bounded by `maxAttempts` total attempts per run:
+if each attempt lands a PR that still conflicts, the agent exhausts attempts,
+and the run ends with a `conflict` warning in the outcome comment and dashboard.
+Time and cost budgets apply throughout repair as normal — an expensive merge
+resolution consumes budget like any other work. When repair cannot complete,
+`issue_attack resume N` picks up in the same session and worktree with a fresh
+budget, avoiding re-exploration.
+
 Field note: in a fleet, several agents' PRs may land near-simultaneously, so a
 single repair pass can be superseded by another merge minutes later. The
 bounded loop deliberately trades completeness for termination: it repairs once
