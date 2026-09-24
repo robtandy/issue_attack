@@ -1,12 +1,12 @@
-# issue_attack
+# issue-attack
 
 Autonomous CLI agents that pick up GitHub issues, work them independently in
 isolated git worktrees, and open pull requests — powered by
 [pi](https://pi.dev) as the agent harness.
 
 ```
-$ issue_attack attack --max 3 --watch
-attacking robtandy/issue_attack — label: agent-ready max: 3 (watch mode)
+$ issue-attack attack --max 3 --watch
+attacking robtandy/issue-attack — label: agent-ready max: 3 (watch mode)
 [#12] picked up: Migrate config loader to ESM
 [#12] attempt 1 on branch agent/issue-12
 [#12] claimed issue 12 as robtandy
@@ -28,17 +28,17 @@ Each agent:
   and an `agent` label
 - lives under **hard budgets** (time, model cost, tokens) with a graceful
   "wrap up" steer before any hard abort
-- can be **steered live** (`issue_attack steer 12 "use an env var, not the DB"`),
+- can be **steered live** (`issue-attack steer 12 "use an env var, not the DB"`),
   **by commenting on the issue** (comments are picked up in ~30s and forwarded
-  to the running agent), and **stopped** (`issue_attack stop 12`)
+  to the running agent), and **stopped** (`issue-attack stop 12`)
 - publishes a **live status dashboard** to GitHub Pages
-  (`issue_attack page init`) — mobile-friendly, showing every agent, what it's
+  (`issue-attack page init`) — mobile-friendly, showing every agent, what it's
   doing, how long since it last acted, and links straight into the GitHub
   conversation
 
 ## How it works, in one paragraph
 
-`issue_attack` is a supervisor. It claims issues (assignee + label mutex),
+`issue-attack` is a supervisor. It claims issues (assignee + label mutex),
 creates a worktree per issue, and spawns a `pi --mode rpc` worker inside it with
 a strict *worker contract* appended to its system prompt: understand the issue,
 implement the smallest correct change, verify, push, open a PR — or write
@@ -60,27 +60,27 @@ Full design, failure modes, and rationale: [DESIGN.md](DESIGN.md).
 ## Install
 
 ```bash
-npm install -g robtandy/issue_attack
+npm install -g robtandy/issue-attack
 ```
 
 Or from a checkout:
 
 ```bash
-git clone https://github.com/robtandy/issue_attack
-cd issue_attack && npm link
+git clone https://github.com/robtandy/issue-attack
+cd issue-attack && npm link
 ```
 
 ## Quickstart
 
 ```bash
 cd your-repo
-issue_attack init                  # config, labels, gitignore, account pin (safe to re-run)
-issue_attack doctor                # verify pi/gh/git/labels/account are all ready
+issue-attack init                  # config, labels, gitignore, account pin (safe to re-run)
+issue-attack doctor                # verify pi/gh/git/labels/account are all ready
 
 # Create work for the fleet (uses the repo's pinned account) and attack it:
-issue_attack new "Fix the config loader" --body "Details…"   # labeled agent-ready
-issue_attack attack --max 3        # or: run <issue#> for one, in the foreground
-issue_attack attack --max 3 --watch # keep polling for newly labeled issues
+issue-attack new "Fix the config loader" --body "Details…"   # labeled agent-ready
+issue-attack attack --max 3        # or: run <issue#> for one, in the foreground
+issue-attack attack --max 3 --watch # keep polling for newly labeled issues
 ```
 
 ## Accounts
@@ -93,9 +93,9 @@ a repo always use the right account, pin it:
 issue_attack account robtandy      # pin; `init` pins automatically on first run
 ```
 
-Every issue_attack command — including the agents it spawns and their `gh`
+Every issue-attack command — including the agents it spawns and their `gh`
 calls — then runs as that account (via a per-process `GH_TOKEN`), regardless of
-which account `gh` currently has active. `issue_attack account` shows the
+which account `gh` currently has active. `issue-attack account` shows the
 pin and the effective login; `doctor` reports both. The pin lives in
 `.issue_attack/config.json` (local to your machine).
 
@@ -103,7 +103,7 @@ When an agent finishes you get a PR (`Closes #12`). When it's blocked you get
 a comment listing exactly what it needs — answer in the issue, then:
 
 ```bash
-issue_attack resume 12             # agent picks up where it left off
+issue-attack resume 12             # agent picks up where it left off
 ```
 
 ## Commands
@@ -124,6 +124,8 @@ issue_attack resume 12             # agent picks up where it left off
 | `log <issue#> [--raw] [--lines n]` | Inspect a run's event log |
 | `page init` / `publish` / `url` | Publish / republish / print the GitHub Pages status dashboard |
 | `cleanup [--issue n] [--purge]` | Remove worktrees of finished runs; `--purge` also drops sessions, logs, branches, state |
+
+Use `ia` as a shorthand alias for `issue-attack` in any of the above commands.
 
 Exit codes: `0` for `succeeded`/`blocked`/`stopped`, `1` for `failed`/`timeout`/`skipped` — scriptable.
 
@@ -172,7 +174,7 @@ Everything lives under `.issue_attack/` (gitignored): `worktrees/`,
 
 ## Live status dashboard
 
-`issue_attack page init` publishes a self-contained dashboard to GitHub Pages
+`issue-attack page init` publishes a self-contained dashboard to GitHub Pages
 (served from the `gh-pages` branch of your repo):
 
 - every agent run: state, attempt, branch, PR, cost, tokens, and the
@@ -196,7 +198,7 @@ with `page init`; get the URL anytime with `page url`.
 2. Supervisor comments it on the issue, labels it `agent-blocked`, releases
    the claim, **keeps the worktree + session**.
 3. You answer in the issue.
-4. `issue_attack resume <n>` re-claims, feeds your answers + prior context to
+4. `issue-attack resume <n>` re-claims, feeds your answers + prior context to
    the same agent, and it continues where it stopped.
 
 Agents are instructed to prefer a defensible assumption + a note in the PR
@@ -222,8 +224,8 @@ important.
 ## Development
 
 ```bash
-node bin/issue_attack.js help
-node bin/issue_attack.js doctor
+node bin/issue-attack.js help
+node bin/issue-attack.js doctor
 ```
 
 No build step, zero runtime dependencies. `bin/` + `lib/` are plain ESM
