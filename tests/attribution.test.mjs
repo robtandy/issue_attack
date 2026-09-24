@@ -61,7 +61,7 @@ test("prFooter without attempt", async (t) => {
 
 test("hasPrFooter", async (t) => {
   const trueCases = [
-    "Some PR description\n\n---\n🤖 This PR was opened by an [issue_attack](https://github.com/robtandy/issue_attack) agent autonomously working issue #42. Review with the same care you would any contribution — verify the changes yourself.",
+    "Some PR description\n\n---\n🤖 This PR was opened by an [issue_attack](https://github.com/robtandy/issue_attack) agent autonomously working issue #42.",
     "This PR was opened by an agent",
     "This PR was opened by an [issue_attack](https://github.com/robtandy/issue_attack) agent autonomously working issue #7 (attempt 1).",
   ];
