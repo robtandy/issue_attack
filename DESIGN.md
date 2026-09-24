@@ -427,7 +427,7 @@ base. Response, layer by layer:
 
 **Post-run conflict recovery**: If the base branch moves *after* a run completes
 successfully, the PR may become conflicted. The supervisor detects this on the next
-status check (via the `conflicted: true` field) and keeps the issue available for
+status check (via the `conflicts: true` field) and keeps the issue available for
 re-claiming: no `done` label is added, the claim is released, and the issue stays
 in the `issue-attack-ready` queue. The fleet will automatically pick it up and resume,
 sending the agent a merge-and-resolve prompt to fix the new conflicts.
