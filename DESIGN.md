@@ -275,6 +275,19 @@ Design decisions:
 - **Single host per repo** for now: concurrent hosts would force-push over
   each other's branch (last writer wins). Multi-host status merge is roadmap.
 
+### 7b. GitHub account pinning
+
+`gh` operates as whichever account is *active* — a trap when you juggle an
+enterprise and a personal login (enterprise tokens often cannot touch your
+personal repos, and the failure surfaces as cryptic "not allowed" errors).
+Repos pin their account in local config (`ghAccount`, set by `init` or
+`issue_attack account <login>`). At startup the supervisor resolves that
+account's token (`gh auth token --user <login>`) and exports `GH_TOKEN` for
+its whole process tree — every gh call, including the ones worker agents make
+from their worktrees, runs as the pinned account no matter what `gh` has
+active. Failing to resolve the pin fails fast with a fix hint; `doctor`
+reports pin vs. effective login.
+
 ## 8. Failure modes
 
 | Failure | Detection | Handling | Issue-side effect |
