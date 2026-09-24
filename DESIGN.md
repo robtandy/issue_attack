@@ -425,11 +425,16 @@ base. Response, layer by layer:
    staleness; strict up-to-date-branch protection is repo policy, and with it
    the repair loop covers that case too.
 
-Not handled yet (roadmap): base moving *after* a clean run ends — a post-run
-PR conflict watcher (periodic check that flips `conflicts` on the entry and
-comments once), and overlap-aware claiming (two agents editing the same files
+**Post-run conflict recovery**: If the base branch moves *after* a run completes
+successfully, the PR may become conflicted. The supervisor detects this on the next
+status check (via the `conflicted: true` field) and keeps the issue available for
+re-claiming: no `done` label is added, the claim is released, and the issue stays
+in the `issue-attack-ready` queue. The fleet will automatically pick it up and resume,
+sending the agent a merge-and-resolve prompt to fix the new conflicts.
+
+Not handled yet (roadmap): overlap-aware claiming (two agents editing the same files
 will still conflict; the repair loop resolves it, but serializing by touched
-paths would avoid the churn).
+paths would avoid the churn), and cross-host status merges (multi-machine fleets).
 
 ### Repair loop mechanics
 
