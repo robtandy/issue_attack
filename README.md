@@ -194,6 +194,24 @@ While agents run (or `--watch` is polling), the supervisor republishes at most
 every `statusPublishMinutes`; the page itself refetches every 10s. Deploy once
 with `page init`; get the URL anytime with `page url`.
 
+## Attribution
+
+All issue_attack activity is marked so anyone can tell it from your own:
+
+- **Agent commits** end with a
+  `Co-authored-by: issue-attack <issue-attack@users.noreply.github.com>`
+  trailer, added by a git hook the supervisor installs in every agent worktree
+  (worktree-scoped — your own commits in the main checkout are never touched).
+- **PRs** carry the `[agent]` title prefix, the `issue-attack` label, and a
+  footer identifying the tool and the issue it worked. The supervisor enforces
+  the prefix and footer even when an agent forgets.
+- **Issue comments** from the supervisor are self-describing and link back to
+  the tool.
+
+Prefer a fully distinct identity? Pin a dedicated machine account with
+`issue_attack account <login>` and all commits/PRs/comments post as that
+account instead. (A GitHub-App bot identity with the BOT badge is roadmap.)
+
 ## The blocked loop
 
 1. Agent hits something it genuinely can't resolve → writes `BLOCKED.md`

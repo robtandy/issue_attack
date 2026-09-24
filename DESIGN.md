@@ -447,7 +447,33 @@ bounded loop deliberately trades completeness for termination: it repairs once
 per remaining attempt and then hands the conflict to a human (or a fresh
 `resume`) rather than chasing a moving base forever.
 
-## 15. Alternatives considered
+## 15. Attribution
+
+Activity lands under the operator's GitHub identity (that is the point of
+account pinning), so provenance must be explicit. The stack, layer by layer:
+
+- **Commits**: every agent commit ends with
+  `Co-authored-by: issue-attack <issue-attack@users.noreply.github.com>`.
+  Enforced mechanically, not by instruction: `ensureWorktree` installs a
+  `prepare-commit-msg` hook (shared, in `.issue_attack/hooks/`) and points the
+  worktree at it via `core.hooksPath` — set with `--worktree` scoped config so
+  the operator's own commits in the main checkout are never touched. The hook
+  is idempotent (won't duplicate the trailer) and runs for merge commits too.
+- **PRs**: `[agent]` title prefix (contract *and* supervisor-enforced —
+  `enforcePrConventions` prepends it post-hoc if the agent forgot), the
+  `issue-attack` label, and a body footer identifying the tool and the issue
+  worked (appended by the supervisor if absent).
+- **Comments**: supervisor comments are self-describing (status marker,
+  outcome text) and link to the tool repo.
+
+Deliberately no separate identity: a machine user or GitHub App would move
+activity out from under the operator's name, which is the opposite of what
+was asked. If a distinct identity is wanted later, pinning a dedicated
+account (`issue_attack account <login>`) requires zero code changes — the
+`Co-authored-by` trailer already names issue-attack, and a GitHub App bot
+(dependabot-style, with the BOT badge) is roadmap.
+
+## 16. Alternatives considered
 
 - **In-process SDK instead of subprocess**: rejected — coupling supervisor
   lifetime to worker lifetime; the RPC contract is stable and gives us
