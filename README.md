@@ -6,23 +6,41 @@ Each agent runs in its own isolated git worktree on branch `agent/issue-<n>`, wo
 
 ## Requirements
 
-- Node.js >= 22
 - `pi` on PATH, authenticated — [install pi](https://pi.dev)
 - `gh` on PATH, authenticated with push access to your repo
 - A git repository with a GitHub remote
+- Node.js >= 22 — only needed for the npm install channel; the binary install doesn't use Node
 
 ## Install
 
-```bash
-npm install -g robtandy/issue-attack
-```
-
-Or from a checkout:
+**npm** (requires Node >= 22):
 
 ```bash
-git clone https://github.com/robtandy/issue-attack
-cd issue-attack && npm link
+npm install -g issue-attack
 ```
+
+Or a one-off, no global install:
+
+```bash
+npx issue-attack@latest doctor
+```
+
+**Binary** (no Node needed) — installs `ia` and `issue-attack` into `~/.local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/robtandy/issue_attack/main/scripts/install.sh | sh
+```
+
+Override the destination with `INSTALL_DIR=/usr/local/bin`. Binaries for macOS (arm64, x64) and Linux (x64, arm64) are also on the [releases page](https://github.com/robtandy/issue_attack/releases), each with a `.sha256` checksum.
+
+From a checkout:
+
+```bash
+git clone https://github.com/robtandy/issue_attack
+cd issue_attack && npm link
+```
+
+Whichever you choose, verify your setup with `issue-attack doctor`.
 
 ## Onboarding a New Repository
 
@@ -198,12 +216,50 @@ issue thread. This is a tripwire, not a sandbox — read
 ## Development
 
 ```bash
-node bin/issue-attack.js help
+npm test                        # node --test, zero dependencies
 node bin/issue-attack.js doctor
 ```
 
 No build step, zero runtime dependencies. `bin/` + `lib/` are plain ESM
-Node 22+.
+Node 22+ — the source itself is what the npm package distributes.
+
+One discipline: **keep the code bundleable**. The release pipeline compiles
+the CLI into standalone binaries by embedding the module graph, and runtime
+file reads break inside them (they resolve to the bundler's virtual
+filesystem). So:
+
+- package metadata: `import pkg from "../package.json" with { type: "json" }`
+  (see `lib/version.js`) — never `readFileSync` relative to `import.meta.url`
+- assets: the `loadHtml()` pattern in `lib/status-page.js` (embedded copy
+  first, file fallback for unbundled execution)
+
+CI smoke-tests a compiled binary, but only startup paths. After touching
+less-common paths (e.g. status publishing), pre-flight locally:
+
+```bash
+bun build --compile --outfile /tmp/ia-test bin/issue-attack.js && /tmp/ia-test --version
+```
+
+## Releasing
+
+Tags drive everything. On a clean main with green tests:
+
+```bash
+npm version patch               # bumps package.json and creates the v-tag
+git push --follow-tags origin main
+```
+
+The [release workflow](.github/workflows/release.yml) then runs the tests,
+cross-compiles standalone binaries (macOS arm64/x64, Linux x64/arm64),
+smoke-tests one, attaches them with `.sha256` checksums to a GitHub Release,
+and publishes the npm package.
+
+- **npm publish** requires an `NPM_TOKEN` repository secret (npm Automation
+  access token). Without it, releases ship binaries but skip npm.
+- **Binary users** update by re-running the `curl ... install.sh | sh`
+  one-liner from [Install](#install).
+- Tag names must match `package.json` (`v0.3.1` ↔ `0.3.1`) — `npm version`
+  guarantees this, and the workflow enforces it.
 
 ## License
 
