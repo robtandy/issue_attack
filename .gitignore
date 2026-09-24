@@ -1,0 +1,6 @@
+# Runtime state, worktrees, sessions and logs live here
+.issue_attack/
+
+node_modules/
+*.log
+.DS_Store
