@@ -89,11 +89,11 @@ resource isolation (kill = `SIGTERM` the pid) and clean crash semantics.
 ## 3. Issue lifecycle
 
 ```
-                    label: agent-ready, no assignee, no agent-claimed
+                    label: issue-attack-ready, no assignee, no issue-attack-claimed
                                       │
                                       ▼
                         ┌────────── claim ──────────┐
-                        │ assign @me + agent-claimed│        (skip path:
+                        │ assign @me + issue-attack-claimed│        (skip path:
                         │ verify sole assignee      │──────▶ skipped)
                         └────────────┬──────────────┘
                                      ▼
@@ -124,7 +124,7 @@ resource isolation (kill = `SIGTERM` the pid) and clean crash semantics.
 
 State machine invariants:
 
-- A GitHub-side claim (assignee + `agent-claimed` label) exists **iff** a run is
+- A GitHub-side claim (assignee + `issue-attack-claimed` label) exists **iff** a run is
   live; every terminal path releases it.
 - `BLOCKED.md` in the worktree is the *only* blocked signal; PR-on-branch is
   the *only* success signal. Both are checked from the outside (git/GitHub),
@@ -173,9 +173,9 @@ Within one host, `state.json` + the fleet loop prevent double-pickup. Across
 hosts (or against humans), the issue itself is the mutex:
 
 1. Read the issue. Skip if: not open, has assignees other than me, has
-   `agent-claimed` (unless it's our own claim being re-owned, e.g. a resume
+   `issue-attack-claimed` (unless it's our own claim being re-owned, e.g. a resume
    after crash).
-2. Claim: `gh issue edit --add-assignee @me --add-label agent-claimed`.
+2. Claim: `gh issue edit --add-assignee @me --add-label issue-attack-claimed`.
 3. **Verify** (optimistic concurrency): re-fetch; if any assignee other than
    me appeared, we lost a race → remove our claim and skip.
 
