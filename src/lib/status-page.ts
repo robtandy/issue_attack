@@ -17,16 +17,19 @@ import { hostname } from "node:os";
 import { exec, must } from "./exec.js";
 import * as gh from "./gh.js";
 import * as stateMod from "./state.js";
+import type { RepoInfo } from "./gh.js";
+import type { Config } from "./config.js";
+import type { StateEntry } from "./state.js";
 import VERSION from "./version.js";
 
-const ASSET = fileURLToPath(new URL("../assets/status-page.html", import.meta.url));
+const ASSET = fileURLToPath(new URL("../../assets/status-page.html", import.meta.url));
 
 // Dashboard HTML: prefer the bundled copy (text import — `bun build --compile`
 // embeds it in the binary), falling back to the file shipped next to lib/
 // for unbundled execution under plain Node.
-const loadHtml = async () => {
+const loadHtml = async (): Promise<string> => {
   try {
-    return (await import("../assets/status-page.html", { with: { type: "text" } })).default;
+    return (await import("../../assets/status-page.html", { with: { type: "text" } })).default;
   } catch {
     return readFileSync(ASSET, "utf8");
   }
@@ -39,8 +42,65 @@ const COMMIT_ENV = {
   GIT_COMMITTER_EMAIL: "issue_attack@agents",
 };
 
+export interface AgentCard {
+  issue: number;
+  issueUrl: string;
+  title: string;
+  status: string;
+  attempt: number;
+  branch: string | null;
+  branchUrl: string | null;
+  prUrl: string | null;
+  prNumber: number | null;
+  conflicts: boolean;
+  startedAt: string | null;
+  endedAt: string | null;
+  lastAgentUpdateAt: string | null;
+  lastAction: string | null;
+  cost: number | null;
+  tokens: number | null;
+  model: string | null;
+  session: string | null;
+  note: string | null;
+}
+
+export interface UnclaimedIssue {
+  issue: number;
+  issueUrl: string;
+  title: string;
+  updatedAt?: string;
+}
+
+export interface StatusPayload {
+  generatedAt: string;
+  generatedBy: string;
+  repo: string;
+  repoUrl: string;
+  defaultBranch: string;
+  host: string;
+  publishCadenceSeconds: number;
+  agents: AgentCard[];
+  unclaimed: UnclaimedIssue[];
+}
+
+export interface PublishResult {
+  skipped?: string;
+  pushed?: boolean;
+  at?: string;
+  agents?: number;
+  error?: string;
+}
+
+export interface PageSetupResult {
+  ok: boolean;
+  created?: boolean;
+  needsForce?: boolean;
+  error?: string;
+  warn?: string;
+}
+
 /** Deploy workflow committed to the default branch by `page init`. */
-export function workflowYaml(statusBranch) {
+export function workflowYaml(statusBranch: string): string {
   return `# Deployed by issue_attack — publishes the agent fleet status page.
 # Every status publish force-pushes ${statusBranch}; this workflow deploys it.
 # (Actions-based deploys are not subject to the ~10/hour Pages build limit.)
@@ -82,7 +142,11 @@ jobs:
  * issue titles/urls for entries that predate this feature. Also fetches
  * unclaimed issues (agent-ready but not agent-claimed).
  */
-export async function buildPayload(root, repoInfo, config) {
+export async function buildPayload(
+  root: string,
+  repoInfo: RepoInfo,
+  config?: Config
+): Promise<StatusPayload> {
   const repo = repoInfo.nameWithOwner;
   const repoUrl = `https://github.com/${repo}`;
   const state = stateMod.loadState(root);
@@ -109,9 +173,9 @@ export async function buildPayload(root, repoInfo, config) {
     }
   }
 
-  const rank = { running: 0, blocked: 1 };
+  const rank: Record<string, number> = { running: 0, blocked: 1 };
   const agents = entries
-    .map((e) => ({
+    .map((e: StateEntry) => ({
       issue: e.issue,
       issueUrl: e.issueUrl ?? `${repoUrl}/issues/${e.issue}`,
       title: e.title ?? `issue #${e.issue}`,
@@ -132,15 +196,18 @@ export async function buildPayload(root, repoInfo, config) {
       session: e.sessionId ?? null,
       note: e.note ?? null,
     }))
-    .sort((a, b) => (rank[a.status] ?? 2) - (rank[b.status] ?? 2) ||
-      String(b.lastAgentUpdateAt ?? "").localeCompare(String(a.lastAgentUpdateAt ?? "")));
+    .sort(
+      (a, b) =>
+        (rank[a.status] ?? 2) - (rank[b.status] ?? 2) ||
+        String(b.lastAgentUpdateAt ?? "").localeCompare(String(a.lastAgentUpdateAt ?? ""))
+    );
 
   // Fetch unclaimed issues (agent-ready but not agent-claimed)
-  let unclaimed = [];
+  let unclaimed: UnclaimedIssue[] = [];
   try {
     const readyIssues = await gh.listIssues(root, repo, label, 100);
     unclaimed = readyIssues
-      .filter((issue) => !issue.labels.some((l) => l.name === claimedLabel))
+      .filter((issue) => !issue.labels?.some((l) => l.name === claimedLabel))
       .map((issue) => ({
         issue: issue.number,
         issueUrl: `${repoUrl}/issues/${issue.number}`,
@@ -165,7 +232,7 @@ export async function buildPayload(root, repoInfo, config) {
   };
 }
 
-let chain = Promise.resolve(); // serialized publishes: terminal states are never dropped
+let chain: Promise<unknown> = Promise.resolve(); // serialized publishes: terminal states are never dropped
 let lastPublishAt = 0;
 
 /**
@@ -174,21 +241,31 @@ let lastPublishAt = 0;
  * config.statusPublishMinutes unless `force` (init, manual publish, and
  * terminal states). Each push triggers the deploy workflow on GitHub.
  */
-export function publishStatus(root, repoInfo, config, { force = false } = {}) {
+export function publishStatus(
+  root: string,
+  repoInfo: RepoInfo,
+  config: Config,
+  { force = false }: { force?: boolean } = {}
+): Promise<PublishResult> {
   const task = () => doPublish(root, repoInfo, config, force);
-  const result = chain.then(task, task);
+  const result = chain.then(task, task) as Promise<PublishResult>;
   chain = result.catch(() => {});
   return result;
 }
 
-async function doPublish(root, repoInfo, config, force) {
+async function doPublish(
+  root: string,
+  repoInfo: RepoInfo,
+  config: Config,
+  force: boolean
+): Promise<PublishResult> {
   if (!force && (config.statusPublishMinutes ?? 0) <= 0) return { skipped: "disabled" };
   if (!force && Date.now() - lastPublishAt < (config.statusPublishMinutes ?? 2) * 60_000) {
     return { skipped: "throttled" };
   }
-  
+
   const branch = config.statusBranch ?? "gh-pages";
-  
+
   // ---- Cross-host coordination via git -----------------------------------------------
   // When multiple issue-attack agents run concurrently (same host or different hosts),
   // we need to prevent them from simultaneously publishing status updates to the same
@@ -213,12 +290,10 @@ async function doPublish(root, repoInfo, config, force) {
   //   02:01 Agent B checks → sees remote timestamp 00:00 → beyond 2m → publishes
   //
   if (!force) {
-    await exec("git", ["fetch", "origin", branch], { cwd: root, timeout: 30_000 }).catch(() => {});
-    const { code, stdout } = await exec(
-      "git",
-      ["log", "-1", "--format=%aI", `origin/${branch}`],
-      { cwd: root }
-    );
+    await exec("git", ["fetch", "origin", branch], { cwd: root, timeoutMs: 30_000 }).catch(() => {});
+    const { code, stdout } = await exec("git", ["log", "-1", "--format=%aI", `origin/${branch}`], {
+      cwd: root,
+    });
     if (code === 0 && stdout.trim()) {
       const remoteTimestamp = new Date(stdout.trim()).getTime();
       const publishIntervalMs = (config.statusPublishMinutes ?? 2) * 60_000;
@@ -228,7 +303,7 @@ async function doPublish(root, repoInfo, config, force) {
       }
     }
   }
-  
+
   lastPublishAt = Date.now();
   const payload = await buildPayload(root, repoInfo, config);
   const json = JSON.stringify(payload, null, 2) + "\n";
@@ -237,9 +312,9 @@ async function doPublish(root, repoInfo, config, force) {
   // Three blobs: the dashboard, the data, and the deploy workflow that
   // carries them to Pages (push triggers read the workflow from the pushed
   // ref, so it travels inside every publish — the branch is self-contained).
-  const sha = async (content) =>
+  const sha = async (content: string): Promise<string> =>
     (await must("git", ["hash-object", "-w", "--stdin"], { cwd: root, input: content })).trim();
-  const mk = async (entries) =>
+  const mk = async (entries: Array<{ mode: string; type: string; sha: string; name: string }>) =>
     (
       await must("git", ["mktree"], {
         cwd: root,
@@ -271,31 +346,43 @@ async function doPublish(root, repoInfo, config, force) {
 
 // ---- GitHub Pages configuration ----------------------------------------------
 
-const pagesState = async (root, repo) => {
+interface PagesState {
+  html_url?: string;
+  build_type?: string;
+  source?: { branch?: string };
+}
+
+const pagesState = async (root: string, repo: string): Promise<PagesState | null> => {
   const { code, stdout } = await exec("gh", ["api", `repos/${repo}/pages`], { cwd: root });
   if (code !== 0) return null;
   try {
-    return JSON.parse(stdout);
+    return JSON.parse(stdout) as PagesState;
   } catch {
     return null;
   }
 };
 
 /** GitHub Pages site URL for the repo, or null when Pages isn't enabled. */
-export async function pageUrl(root, repo) {
+export async function pageUrl(root: string, repo: string): Promise<string | null> {
   return (await pagesState(root, repo))?.html_url ?? null;
 }
 
 // gh api can choke ("unexpected end of JSON input") on empty 2xx bodies even
 // when the request succeeded — observed with 201/204 responses.
-const isGhEmptyBodyQuirk = (stderr) => /unexpected end of JSON input|empty/i.test(stderr ?? "");
+const isGhEmptyBodyQuirk = (stderr: string | undefined): boolean =>
+  /unexpected end of JSON input|empty/i.test(stderr ?? "");
 
 /**
  * Enable GitHub Pages served by the deploy workflow:
  * - create the site (build_type workflow) if absent,
  * - re-point / convert it if it exists in another configuration (needs force).
  */
-export async function enablePages(root, repo, statusBranch, { force = false } = {}) {
+export async function enablePages(
+  root: string,
+  repo: string,
+  statusBranch: string,
+  { force = false }: { force?: boolean } = {}
+): Promise<PageSetupResult> {
   const current = await pagesState(root, repo);
 
   if (current?.build_type === "workflow") return { ok: true, created: false };
@@ -341,6 +428,8 @@ export async function enablePages(root, repo, statusBranch, { force = false } = 
   return {
     ok: after != null,
     created: !current,
-    error: after ? `deploys may be rate-limited (Pages build_type stayed '${after.build_type}')` : put.stderr.trim(),
+    error: after
+      ? `deploys may be rate-limited (Pages build_type stayed '${after.build_type}')`
+      : put.stderr.trim(),
   };
 }

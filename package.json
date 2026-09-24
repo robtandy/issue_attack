@@ -15,16 +15,22 @@
   "engines": {
     "node": ">=22"
   },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^5.9.3"
+  },
   "scripts": {
-    "test": "node --test tests/"
+    "build": "tsc",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build",
+    "test": "npm run build && node --test tests/"
   },
   "bin": {
-    "issue-attack": "bin/issue-attack.js",
-    "ia": "bin/issue-attack.js"
+    "issue-attack": "dist/bin/issue-attack.js",
+    "ia": "dist/bin/issue-attack.js"
   },
   "files": [
-    "bin",
-    "lib",
+    "dist",
     "assets",
     "README.md",
     "DESIGN.md"

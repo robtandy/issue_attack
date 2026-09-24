@@ -2,7 +2,8 @@
 
 const enabled = process.stdout.isTTY && !process.env.NO_COLOR;
 
-const wrap = (code) => (s) => (enabled ? `\x1b[${code}m${s}\x1b[0m` : String(s));
+const wrap = (code: string) => (s: unknown): string =>
+  enabled ? `\x1b[${code}m${s}\x1b[0m` : String(s);
 
 export const c = {
   dim: wrap("2"),
@@ -15,7 +16,7 @@ export const c = {
   cyan: wrap("36"),
 };
 
-export function fmtDuration(ms) {
+export function fmtDuration(ms: number): string {
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
@@ -24,20 +25,25 @@ export function fmtDuration(ms) {
   return `${h}h${String(m % 60).padStart(2, "0")}m`;
 }
 
-export function fmtMoney(x) {
+export function fmtMoney(x: number | null | undefined): string {
   if (x == null || !isFinite(x)) return "$0.00";
   return `$${x.toFixed(2)}`;
 }
 
-export function fmtTokens(t) {
+export function fmtTokens(t: number | null | undefined): string {
   if (t == null) return "0";
   if (t >= 1_000_000) return `${(t / 1_000_000).toFixed(1)}M`;
   if (t >= 1_000) return `${(t / 1_000).toFixed(1)}k`;
   return String(t);
 }
 
+export interface ToolRecord {
+  toolName?: string;
+  args?: Record<string, unknown>;
+}
+
 /** One-line summary of a tool execution record. */
-export function toolSummary(rec) {
+export function toolSummary(rec: ToolRecord): string {
   const name = rec.toolName ?? "?";
   const args = rec.args ?? {};
   if (name === "bash" || name === "powershell") {
@@ -53,7 +59,7 @@ export function toolSummary(rec) {
 }
 
 /** Minimal fixed-width table printer. */
-export function printTable(rows, headers) {
+export function printTable(rows: unknown[][], headers: string[]): void {
   const widths = headers.map((h, i) =>
     Math.max(
       h.length,
@@ -61,7 +67,7 @@ export function printTable(rows, headers) {
       3
     )
   );
-  const line = (cells) =>
+  const line = (cells: unknown[]): string =>
     cells.map((cell, i) => String(cell ?? "").padEnd(widths[i])).join("  ");
   console.log(c.dim(line(headers)));
   for (const row of rows) console.log(line(row));

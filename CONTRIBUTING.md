@@ -13,15 +13,18 @@ See the [main README](README.md#requirements) for installation details.
 
 ## Running the CLI from a checkout
 
-No build step. From the repo root:
+TypeScript, compiled with `tsc`. From the repo root:
 
 ```bash
-node bin/issue_attack.js help
-node bin/issue_attack.js doctor
-node bin/issue_attack.js run 12
+npm install        # installs the dev-only toolchain and compiles src/ → dist/
+npm run build      # recompile after edits (or `npm test` to build + test)
+node dist/bin/issue-attack.js help
+node dist/bin/issue-attack.js doctor
+node dist/bin/issue-attack.js run 12
 ```
 
-Plain ESM, zero runtime dependencies. Just Node, git, and gh.
+Zero runtime dependencies — TypeScript and `@types/node` are dev-only, and
+`tsc` must pass with no errors (CI and `npm test` enforce it).
 
 ## Running tests
 
@@ -29,35 +32,42 @@ Plain ESM, zero runtime dependencies. Just Node, git, and gh.
 npm test
 ```
 
-Tests live in `tests/` and use Node's built-in test runner. To run a single
-test file:
+Tests live in `tests/` and use Node's built-in test runner; they import the
+compiled output from `dist/`, so build first. To run a single test file:
 
 ```bash
-node --test tests/policy.test.mjs
+npm run build && node --test tests/policy.test.mjs
 ```
 
 Add tests when you add or change behavior.
 
 ## Philosophy
 
-- **No build step** — `bin/` and `lib/` are plain Node 22+ ESM.
+- **TypeScript, like pi** — sources in `src/` (`src/bin/`, `src/lib/`), compiled
+  by `tsc` to plain ESM JavaScript in `dist/`. Keep the build error-free.
 - **Zero runtime dependencies** — keep it light. Config, strings, file I/O,
   shell commands, and pi RPC are all we need.
+- **Bundleable** — the compiled module graph gets embedded in standalone
+  binaries; import assets/package metadata at build time, never via runtime
+  `readFileSync` relative to `import.meta.url`.
 - **Unopinionated** — this tool is a supervisor, not a framework. All the
   agent intelligence lives in pi (the harness) and the worker contract
   (the system prompt injected into each run).
 
 ## Code organization
 
-- `bin/issue_attack.js` — entry point
-- `lib/cli.js` — command dispatcher and handlers
-- `lib/runner.js` — the supervisor's core loop (claim, spawn, monitor, post)
-- `lib/pi-client.js` — pi RPC wrapper
-- `lib/gh.js` — GitHub API (issues, PRs, comments)
-- `lib/git.js` — git operations (worktrees, branches)
-- `lib/policy.js` — command tripwire and safety rules
-- `lib/config.js` — `.issue_attack/config.json` loader
-- `lib/prompt.js` — worker system prompt and context assembly
+- `src/bin/issue-attack.ts` — entry point
+- `src/lib/cli.ts` — command dispatcher and handlers
+- `src/lib/runner.ts` — the supervisor's core loop (claim, spawn, monitor, post)
+- `src/lib/pi-client.ts` — pi RPC wrapper
+- `src/lib/gh.ts` — GitHub API (issues, PRs, comments)
+- `src/lib/git.ts` — git operations (worktrees, branches)
+- `src/lib/policy.ts` — command tripwire and safety rules
+- `src/lib/config.ts` — `.issue_attack/config.json` loader
+- `src/lib/prompt.ts` — worker system prompt and context assembly
+- `src/lib/status-page.ts` — fleet dashboard publishing
+- `src/lib/state.ts` — local run registry and control channel
+- `dist/` — compiled JavaScript (gitignored; what runs and ships)
 
 ## Understanding the system
 

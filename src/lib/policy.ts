@@ -16,12 +16,12 @@
 const CAPABLE_COMMANDS = new Set(["git", "gh", "sudo", "rm", "chmod", "chown"]);
 
 /** Split a command into shell statements and reduce each to its command prefix. */
-function commandPrefixes(command) {
+function commandPrefixes(command: string): string[] {
   const statements = String(command ?? "")
     .split(/\n|;|&&|\|\|/)
     .map((s) => s.trim())
     .filter(Boolean);
-  const prefixes = [];
+  const prefixes: string[] = [];
   for (const stmt of statements) {
     // Cut at the first string literal or heredoc: everything after is data.
     const cut = stmt.search(/["'`]|<</);
@@ -33,18 +33,31 @@ function commandPrefixes(command) {
   return prefixes;
 }
 
-/** @typedef {{ok: true} | {ok: false, rule: string, reason: string}} PolicyResult */
+export interface PolicyContext {
+  baseBranch: string;
+  branch: string;
+}
+
+export interface PolicyRule {
+  rule: string;
+  test: RegExp;
+  reason: string;
+}
+
+export type PolicyResult = { ok: true } | { ok: false; rule: string; reason: string };
+
+/** A failed check: which rule fired and why. */
+export type PolicyViolation = Extract<PolicyResult, { ok: false }>;
 
 /**
- * @param {string} command
- * @param {{baseBranch: string, branch: string}} ctx
- * @returns {PolicyResult}
+ * Check a bash command against the denylist. Only statements that start with
+ * a capable command are matched (see commandPrefixes above).
  */
-export function checkCommand(command, { baseBranch, branch }) {
-  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export function checkCommand(command: string, { baseBranch, branch }: PolicyContext): PolicyResult {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const base = esc(baseBranch);
 
-  const rules = [
+  const rules: PolicyRule[] = [
     {
       rule: "force-push",
       test: new RegExp(`\\bgit\\s+push\\b[^|;&]*(--force(?!-with-lease)|--force-with-lease|\\s-f\\b)`),
@@ -138,9 +151,11 @@ export function checkCommand(command, { baseBranch, branch }) {
 }
 
 /** The steering message sent to an agent on first violation. */
-export function violationMessage(v) {
-  return `[POLICY] Your command was flagged and stopped: ${v.reason} (${v.rule}). ` +
+export function violationMessage(v: PolicyViolation): string {
+  return (
+    `[POLICY] Your command was flagged and stopped: ${v.reason} (${v.rule}). ` +
     `Hard rules: push only to your own branch, never force-push, never merge/close PRs, ` +
     `never close or edit the issue, never touch repo settings/secrets/workflows. ` +
-    `Continue the task using allowed operations.`;
+    `Continue the task using allowed operations.`
+  );
 }

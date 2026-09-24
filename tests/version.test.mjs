@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
-import version from "../lib/version.js";
+import version from "../dist/lib/version.js";
 
 test("version is exported as a non-empty string", () => {
   assert.strictEqual(typeof version, "string", "version should be a string");

@@ -37,7 +37,7 @@ From a checkout:
 
 ```bash
 git clone https://github.com/robtandy/issue_attack
-cd issue_attack && npm link
+cd issue_attack && npm install && npm link   # npm install also compiles src/ → dist/
 ```
 
 Whichever you choose, verify your setup with `issue-attack doctor`.
@@ -216,28 +216,31 @@ issue thread. This is a tripwire, not a sandbox — read
 ## Development
 
 ```bash
-npm test                        # node --test, zero dependencies
-node bin/issue-attack.js doctor
+npm test                         # tsc build (must be error-free) + node --test
+npm run build                    # compile TypeScript src/ → dist/
+node dist/bin/issue-attack.js doctor
 ```
 
-No build step, zero runtime dependencies. `bin/` + `lib/` are plain ESM
-Node 22+ — the source itself is what the npm package distributes.
+TypeScript, like pi. Sources live in `src/` (`src/bin/`, `src/lib/`); `tsc`
+compiles them to plain ESM JavaScript in `dist/`, which is what runs and
+what the npm package distributes. Zero runtime dependencies — TypeScript
+and `@types/node` are dev-only, and the build must stay error-free.
 
 One discipline: **keep the code bundleable**. The release pipeline compiles
 the CLI into standalone binaries by embedding the module graph, and runtime
 file reads break inside them (they resolve to the bundler's virtual
 filesystem). So:
 
-- package metadata: `import pkg from "../package.json" with { type: "json" }`
-  (see `lib/version.js`) — never `readFileSync` relative to `import.meta.url`
-- assets: the `loadHtml()` pattern in `lib/status-page.js` (embedded copy
+- package metadata: `import pkg from "../../package.json" with { type: "json" }`
+  (see `src/lib/version.ts`) — never `readFileSync` relative to `import.meta.url`
+- assets: the `loadHtml()` pattern in `src/lib/status-page.ts` (embedded copy
   first, file fallback for unbundled execution)
 
 CI smoke-tests a compiled binary, but only startup paths. After touching
 less-common paths (e.g. status publishing), pre-flight locally:
 
 ```bash
-bun build --compile --outfile /tmp/ia-test bin/issue-attack.js && /tmp/ia-test --version
+npm run build && bun build --compile --outfile /tmp/ia-test dist/bin/issue-attack.js && /tmp/ia-test --version
 ```
 
 ## Releasing

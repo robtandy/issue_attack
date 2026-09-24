@@ -6,7 +6,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reactionArgs, editCommentArgs, deleteCommentArgs } from "../lib/gh.js";
+import { reactionArgs, editCommentArgs, deleteCommentArgs } from "../dist/lib/gh.js";
 
 const NODE_ID = "IC_kwDOUp3K2M8AAAABWwBbfg";
 

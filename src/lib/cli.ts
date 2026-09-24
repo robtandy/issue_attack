@@ -1,10 +1,12 @@
 // Command-line interface. Hand-rolled arg parsing, zero dependencies.
 
 import { readFileSync, existsSync, mkdirSync, appendFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { c, printTable, fmtMoney, fmtDuration, toolSummary } from "./ui.js";
+import { join } from "node:path";
+import { c, printTable, fmtMoney, toolSummary } from "./ui.js";
 import { loadConfig, DEFAULTS, dirs } from "./config.js";
+import type { Config } from "./config.js";
 import * as gh from "./gh.js";
+import type { RepoInfo } from "./gh.js";
 import * as git from "./git.js";
 import * as stateMod from "./state.js";
 import { AgentRunner, attackFleet } from "./runner.js";
@@ -55,9 +57,22 @@ Config: .issue_attack/config.json (created by init; see README for all fields).`
 
 // ---- arg parsing -------------------------------------------------------------
 
-function parseArgs(argv, spec) {
-  const opts = {};
-  const positionals = [];
+export interface ArgSpecEntry {
+  type: string;
+  default?: unknown;
+}
+
+export type ArgSpec = Record<string, ArgSpecEntry>;
+
+export interface ParsedArgs {
+  opts: Record<string, unknown>;
+  positionals: string[];
+  help: boolean;
+}
+
+function parseArgs(argv: string[], spec: ArgSpec): ParsedArgs {
+  const opts: Record<string, unknown> = {};
+  const positionals: string[] = [];
   for (const key of Object.keys(spec)) {
     if (spec[key].default !== undefined) opts[key] = spec[key].default;
   }
@@ -70,7 +85,7 @@ function parseArgs(argv, spec) {
       let name = eq === -1 ? bare : bare.slice(0, eq);
       // kebab-case flags map to camelCase spec keys (--body-file → bodyFile)
       name = name.replace(/-([a-z])/g, (m) => m[1].toUpperCase());
-      let inlineVal = eq === -1 ? null : bare.slice(eq + 1);
+      const inlineVal: string | null = eq === -1 ? null : bare.slice(eq + 1);
       const def = spec[name];
       if (!def) throw new Error(`unknown option: ${tok} (see --help)`);
       if (def.type === "bool") {
@@ -79,7 +94,7 @@ function parseArgs(argv, spec) {
         const val = inlineVal !== null ? inlineVal : argv[++i];
         if (val === undefined) throw new Error(`option ${tok} requires a value`);
         opts[name] = def.type === "number" ? Number(val) : val;
-        if (def.type === "number" && !Number.isFinite(opts[name])) {
+        if (def.type === "number" && !Number.isFinite(opts[name] as number)) {
           throw new Error(`option ${tok} must be a number`);
         }
       }
@@ -90,16 +105,25 @@ function parseArgs(argv, spec) {
   return { opts, positionals, help: false };
 }
 
-const out = (msg = "") => console.log(msg);
+const out = (msg = ""): void => console.log(msg);
 
 // ---- shared context ----------------------------------------------------------
 
-async function context(opts, { tryAccounts = false } = {}) {
-  const root = await git.resolveRoot(process.cwd(), opts.root);
+interface Context {
+  root: string;
+  repoInfo: RepoInfo;
+  config: Config;
+}
+
+async function context(
+  opts: Record<string, unknown>,
+  { tryAccounts = false }: { tryAccounts?: boolean } = {}
+): Promise<Context> {
+  const root = await git.resolveRoot(process.cwd(), opts.root as string | undefined);
   if (!root) {
     throw new Error("not inside a git repository — run issue_attack from a repo, or pass --root");
   }
-  const config = { ...loadConfig(root), ...pickSet(opts, ["model"]) };
+  const config = { ...loadConfig(root), ...pickSet(opts, ["model"]) } as Config;
 
   // Pinned GitHub account: resolve its token once and export GH_TOKEN for
   // every gh call in this process tree — supervisor, workers and their gh
@@ -119,7 +143,7 @@ async function context(opts, { tryAccounts = false } = {}) {
     console.log(c.dim(`using GitHub account ${c.bold(config.ghAccount)} (pinned for this repo)`));
   }
 
-  const repoInfo = await gh.repoInfo(root, opts.repo, tryAccounts);
+  const repoInfo = await gh.repoInfo(root, opts.repo as string | undefined, tryAccounts);
   if (!repoInfo) {
     throw new Error(
       `could not resolve the GitHub repository at ${root} — the current gh account cannot see it. ` +
@@ -129,13 +153,13 @@ async function context(opts, { tryAccounts = false } = {}) {
   return { root, repoInfo, config };
 }
 
-function pickSet(obj, keys) {
-  const r = {};
+function pickSet(obj: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+  const r: Record<string, unknown> = {};
   for (const k of keys) if (obj[k] !== undefined && obj[k] !== null) r[k] = obj[k];
   return r;
 }
 
-function requireIssue(positionals) {
+function requireIssue(positionals: string[]): number {
   const n = Number(positionals[0]);
   if (!Number.isInteger(n) || n <= 0) throw new Error("expected an issue number, e.g. issue_attack run 12");
   return n;
@@ -143,14 +167,14 @@ function requireIssue(positionals) {
 
 // ---- commands ----------------------------------------------------------------
 
-async function cmdInit(opts) {
+async function cmdInit(opts: Record<string, unknown>): Promise<void> {
   // For init, resolve the repo with multi-account fallback, bypassing the pinned account check
-  const root = await git.resolveRoot(process.cwd(), opts.root);
+  const root = await git.resolveRoot(process.cwd(), opts.root as string | undefined);
   if (!root) {
     throw new Error("not inside a git repository — run issue_attack from a repo, or pass --root");
   }
-  const repoInfo = await gh.repoInfo(root, opts.repo, true);
-  const config = { ...loadConfig(root), ...pickSet(opts, ["model"]) };
+  const repoInfo = await gh.repoInfo(root, opts.repo as string | undefined, true);
+  const config = { ...loadConfig(root), ...pickSet(opts, ["model"]) } as Config;
   const d = dirs(root);
   for (const dir of [d.base, d.worktrees, d.sessions, d.logs, d.inbox, d.stop]) {
     mkdirSync(dir, { recursive: true });
@@ -177,11 +201,11 @@ async function cmdInit(opts) {
     out(`${c.green("created:")} .gitignore`);
   }
 
-  out(`ensuring labels on ${repoInfo.nameWithOwner}…`);
-  await gh.ensureLabel(root, repoInfo.nameWithOwner, config.claimedLabel, "d4c5f9", "claimed by an issue_attack agent");
-  await gh.ensureLabel(root, repoInfo.nameWithOwner, config.blockedLabel, "fbca04", "issue_attack agent is blocked, needs maintainer input");
-  await gh.ensureLabel(root, repoInfo.nameWithOwner, config.doneLabel, "0e8a16", "resolved by an issue_attack agent");
-  await gh.ensureLabel(root, repoInfo.nameWithOwner, config.prLabel, "1d76db", "opened by an issue_attack agent");
+  out(`ensuring labels on ${repoInfo!.nameWithOwner}…`);
+  await gh.ensureLabel(root, repoInfo!.nameWithOwner, config.claimedLabel, "d4c5f9", "claimed by an issue_attack agent");
+  await gh.ensureLabel(root, repoInfo!.nameWithOwner, config.blockedLabel, "fbca04", "issue_attack agent is blocked, needs maintainer input");
+  await gh.ensureLabel(root, repoInfo!.nameWithOwner, config.doneLabel, "0e8a16", "resolved by an issue_attack agent");
+  await gh.ensureLabel(root, repoInfo!.nameWithOwner, config.prLabel, "1d76db", "opened by an issue_attack agent");
   out(c.green("labels ready."));
 
   // Pin this repo to the GitHub account that owns it (set once, re-runnable).
@@ -199,9 +223,11 @@ async function cmdInit(opts) {
   out(`For a live dashboard: ${c.bold("issue_attack page init")}.`);
 }
 
-async function cmdDoctor(opts) {
-  const rows = [];
-  const ok = (name, detail, warn = false) => rows.push([warn ? c.yellow("warn") : c.green("ok"), name, detail]);
+async function cmdDoctor(opts: Record<string, unknown>): Promise<void> {
+  const rows: unknown[][] = [];
+  const ok = (name: string, detail: string, warn = false): void => {
+    rows.push([warn ? c.yellow("warn") : c.green("ok"), name, detail]);
+  };
 
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   ok("node", `v${process.versions.node}${nodeMajor < 22 ? " (need >= 22!)" : ""}`, nodeMajor < 22);
@@ -221,20 +247,21 @@ async function cmdDoctor(opts) {
   if (!hasGh) {
     ok("gh", "not found on PATH", true);
   } else {
-    ok("gh auth", (await gh.ghAuthOk(process.cwd())) ? "authenticated" : "not authenticated (run gh auth login)", !(await gh.ghAuthOk(process.cwd())));
+    const ghOk = await gh.ghAuthOk(process.cwd());
+    ok("gh auth", ghOk ? "authenticated" : "not authenticated (run gh auth login)", !ghOk);
   }
 
-  let root = null;
+  let root: string | null = null;
   try {
-    root = await git.resolveRoot(process.cwd(), opts.root);
+    root = await git.resolveRoot(process.cwd(), opts.root as string | undefined);
   } catch {}
   if (!root) {
     ok("repo", "not inside a git repository", true);
   } else {
     try {
-      const repoInfo = await gh.repoInfo(root, opts.repo);
+      const repoInfo = await gh.repoInfo(root, opts.repo as string | undefined);
       const config = loadConfig(root);
-      ok("repo", `${repoInfo.nameWithOwner} (default branch: ${repoInfo.defaultBranch})`);
+      ok("repo", `${repoInfo!.nameWithOwner} (default branch: ${repoInfo!.defaultBranch})`);
 
       if (existsSync(dirs(root).config)) ok("config", dirs(root).config);
       else ok("config", "missing — run `issue_attack init`", true);
@@ -254,12 +281,14 @@ async function cmdDoctor(opts) {
             : `not pinned — using gh's active account (${effLogin}); pin with \`issue_attack account <login>\``,
           !cfg.ghAccount);
       } catch (err) {
-        ok("account", `unresolvable: ${err.message}`, true);
+        ok("account", `unresolvable: ${(err as Error).message}`, true);
       }
 
-      let labels = [];
+      let labels: Array<{ name: string }> = [];
       try {
-        labels = JSON.parse(await must("gh", ["label", "list", "-R", repoInfo.nameWithOwner, "--json", "name", "--limit", "100"], { cwd: root }));
+        labels = JSON.parse(
+          await must("gh", ["label", "list", "-R", repoInfo!.nameWithOwner, "--json", "name", "--limit", "100"], { cwd: root })
+        ) as Array<{ name: string }>;
       } catch {}
       const names = new Set(labels.map((l) => l.name));
       for (const [label, why] of [
@@ -281,20 +310,20 @@ async function cmdDoctor(opts) {
         }
       }
     } catch (err) {
-      ok("repo", `gh could not resolve the repo: ${err.message}`, true);
+      ok("repo", `gh could not resolve the repo: ${(err as Error).message}`, true);
     }
   }
 
   printTable(rows, ["status", "check", "detail"]);
 }
 
-async function cmdList(opts) {
+async function cmdList(opts: Record<string, unknown>): Promise<void> {
   const { root, repoInfo, config } = await context(opts);
   const { state } = stateMod.reconcile(root);
-  const label = opts.label ?? config.label;
-  const issues = await gh.listIssues(root, repoInfo.nameWithOwner, label, opts.limit ?? 100);
+  const label = (opts.label as string) ?? config.label;
+  const issues = await gh.listIssues(root, repoInfo.nameWithOwner, label, (opts.limit as number) ?? 100);
 
-  const rows = [];
+  const rows: unknown[][] = [];
   for (const it of issues) {
     const labels = (it.labels ?? []).map((l) => l.name);
     if (labels.includes(config.claimedLabel)) continue;
@@ -319,7 +348,11 @@ async function cmdList(opts) {
   }
 }
 
-async function cmdRun(opts, positionals, { mode = "run" } = {}) {
+async function cmdRun(
+  opts: Record<string, unknown>,
+  positionals: string[],
+  { mode = "run" }: { mode?: string } = {}
+): Promise<void> {
   const { root, repoInfo, config } = await context(opts);
   const issue = requireIssue(positionals);
   const { state } = stateMod.reconcile(root);
@@ -328,7 +361,7 @@ async function cmdRun(opts, positionals, { mode = "run" } = {}) {
     throw new Error(`#${issue} is already running (pid ${entry.supervisorPid}) — use \`issue_attack steer ${issue} "…"\` or \`issue_attack stop ${issue}\``);
   }
 
-  let effectiveMode = mode;
+  let effectiveMode: string = mode;
   if (entry && mode === "run" && !opts.fresh) {
     out(`${c.dim(`existing ${entry.status} run found — resuming its session/worktree (use --fresh to start over)`)}`);
     effectiveMode = "resume";
@@ -336,14 +369,14 @@ async function cmdRun(opts, positionals, { mode = "run" } = {}) {
   if (opts.fresh) effectiveMode = "fresh";
 
   const runner = new AgentRunner({
-    root, repoInfo, config, issue, mode: effectiveMode,
-    model: opts.model ?? null,
+    root, repoInfo, config, issue, mode: effectiveMode as "run" | "resume" | "fresh",
+    model: (opts.model as string) ?? null,
     streamText: true,
     onLine: (m) => out(m),
   });
 
   let interrupted = 0;
-  const onSigint = () => {
+  const onSigint = (): void => {
     interrupted++;
     if (interrupted > 1) process.exit(130);
     out(c.yellow("\nstop requested — finishing up (Ctrl-C again to force)…"));
@@ -359,24 +392,24 @@ async function cmdRun(opts, positionals, { mode = "run" } = {}) {
   }
 }
 
-async function cmdAttack(opts) {
+async function cmdAttack(opts: Record<string, unknown>): Promise<void> {
   const { root, repoInfo, config } = await context(opts);
-  const max = opts.max ?? config.maxConcurrent;
+  const max = (opts.max as number) ?? config.maxConcurrent;
   await attackFleet({
     root,
     repoInfo,
     config,
     max,
-    label: opts.label ?? config.label,
+    label: (opts.label as string) ?? config.label,
     watch: !!opts.watch,
-    pollSeconds: opts.poll ?? config.pollSeconds,
-    limit: opts.limit,
-    model: opts.model ?? null,
+    pollSeconds: (opts.poll as number) ?? config.pollSeconds,
+    limit: opts.limit as number | undefined,
+    model: (opts.model as string) ?? null,
     out,
   });
 }
 
-async function cmdStatus(opts) {
+async function cmdStatus(opts: Record<string, unknown>): Promise<void> {
   const { root } = await context(opts);
   const { state } = stateMod.reconcile(root);
   const entries = Object.values(state.runs).sort((a, b) => b.issue - a.issue);
@@ -388,7 +421,7 @@ async function cmdStatus(opts) {
     out("No runs recorded yet.");
     return;
   }
-  const rows = entries.map((e) => [
+  const rows: unknown[][] = entries.map((e) => [
     `#${e.issue}`,
     e.status === "running" ? c.green(e.status) : e.status,
     String(e.attempts ?? 1),
@@ -400,7 +433,7 @@ async function cmdStatus(opts) {
   printTable(rows, ["issue", "status", "att", "branch", "PR", "cost", "ended"]);
 }
 
-async function cmdSteer(opts, positionals) {
+async function cmdSteer(opts: Record<string, unknown>, positionals: string[]): Promise<void> {
   const { root } = await context(opts);
   const issue = requireIssue(positionals);
   const message = positionals.slice(1).join(" ").trim();
@@ -415,7 +448,7 @@ async function cmdSteer(opts, positionals) {
   out(c.dim(`The agent will receive it after its current tool call completes.`));
 }
 
-async function cmdStop(opts, positionals) {
+async function cmdStop(opts: Record<string, unknown>, positionals: string[]): Promise<void> {
   const { root, repoInfo, config } = await context(opts);
   const issue = requireIssue(positionals);
   const { state } = stateMod.reconcile(root);
@@ -430,7 +463,7 @@ async function cmdStop(opts, positionals) {
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 1000));
         const e2 = stateMod.getEntry(stateMod.loadState(root), issue);
-        if (e2.status !== "running") {
+        if (e2 && e2.status !== "running") {
           out(`${c.green("stopped:")} final status: ${e2.status}`);
           return;
         }
@@ -455,13 +488,13 @@ async function cmdStop(opts, positionals) {
   }
 }
 
-async function cmdLog(opts, positionals) {
+async function cmdLog(opts: Record<string, unknown>, positionals: string[]): Promise<void> {
   const { root } = await context(opts);
   const issue = requireIssue(positionals);
   const file = join(dirs(root).logs, `issue-${issue}.jsonl`);
   if (!existsSync(file)) throw new Error(`no log for #${issue} (${file})`);
   const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
-  const tail = lines.slice(-(opts.lines ?? 60));
+  const tail = lines.slice(-((opts.lines as number) ?? 60));
   for (const line of tail) {
     if (line.startsWith("#")) {
       out(c.bold(line));
@@ -472,14 +505,24 @@ async function cmdLog(opts, positionals) {
       continue;
     }
     try {
-      const rec = JSON.parse(line);
+      const rec = JSON.parse(line) as {
+        type: string;
+        toolName?: string;
+        isError?: boolean;
+        attempt?: number;
+        maxAttempts?: number;
+        message?: { role?: string; content?: Array<{ type?: string; text?: string }> };
+      };
       if (rec.type === "message_update") continue;
       if (rec.type === "tool_execution_start") out(`  → ${rec.toolName} ${c.dim(toolSummary(rec))}`);
       else if (rec.type === "tool_execution_end") {
         if (rec.isError) out(c.red(`  ✗ ${rec.toolName} failed`));
       } else if (rec.type === "agent_settled") out(c.dim("  · settled"));
       else if (rec.type === "message_end" && rec.message?.role === "assistant") {
-        const text = (rec.message.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join(" ");
+        const text = (rec.message.content ?? [])
+          .filter((b) => b.type === "text")
+          .map((b) => b.text)
+          .join(" ");
         if (text) out(`  💬 ${clip(text, 160)}`);
       } else if (rec.type === "auto_retry_start") out(c.yellow(`  ↻ retry ${rec.attempt}/${rec.maxAttempts}`));
     } catch {
@@ -489,16 +532,17 @@ async function cmdLog(opts, positionals) {
   out(c.dim(`\nfull log: ${file}`));
 }
 
-async function cmdCleanup(opts, positionals) {
+async function cmdCleanup(opts: Record<string, unknown>, positionals: string[]): Promise<void> {
   const { root, repoInfo, config } = await context(opts);
   const { state } = stateMod.reconcile(root);
   let targets = Object.values(state.runs).filter((e) => e.status !== "running");
   if (opts.issue) {
-    const issue = requireIssue(positionals.length ? positionals : [opts.issue]);
+    const issue = requireIssue(positionals.length ? positionals : [String(opts.issue)]);
     targets = targets.filter((e) => e.issue === issue);
     if (!targets.length) throw new Error(`no finished run recorded for #${issue} (running runs must be stopped first)`);
   } else if (positionals.length) {
-    targets = targets.filter((e) => e.issue === requireIssue(positionals));
+    const issue = requireIssue(positionals);
+    targets = targets.filter((e) => e.issue === issue);
   }
   if (!targets.length) {
     out("Nothing to clean.");
@@ -514,17 +558,17 @@ async function cmdCleanup(opts, positionals) {
         out(`  ${c.yellow("worktree kept (uncommitted changes) — use --purge to discard")}`);
       } else {
         try {
-          await git.removeWorktree(root, e.worktree, dirty && opts.purge);
+          await git.removeWorktree(root, e.worktree, dirty && !!opts.purge);
           out(`  ${c.green("worktree removed")}`);
         } catch (err) {
-          out(`  ${c.yellow("worktree:")} ${err.message}`);
+          out(`  ${c.yellow("worktree:")} ${(err as Error).message}`);
         }
       }
     }
     if (opts.purge) {
       // Local branch (never the remote; keep it while a PR is open)
       try {
-        const prs = await gh.prsForBranch(root, repoInfo.nameWithOwner, e.branch);
+        const prs = await gh.prsForBranch(root, repoInfo.nameWithOwner, e.branch!);
         if (prs.some((p) => p.state === "OPEN")) {
           out(`  ${c.yellow(`branch kept: open PR ${prs[0].url}`)}`);
         } else if (e.branch) {
@@ -532,7 +576,7 @@ async function cmdCleanup(opts, positionals) {
           out(`  ${c.green("branch removed locally")}`);
         }
       } catch (err) {
-        out(`  ${c.yellow("branch:")} ${err.message}`);
+        out(`  ${c.yellow("branch:")} ${(err as Error).message}`);
       }
       for (const p of [
         join(dirs(root).sessions, `issue-${e.issue}`),
@@ -549,7 +593,7 @@ async function cmdCleanup(opts, positionals) {
   if (opts.purge) {
     const st = stateMod.loadState(root);
     for (const e of targets) {
-      if ((st.runs[e.issue]?.status ?? "running") !== "running") delete st.runs[e.issue];
+      if ((st.runs[String(e.issue)]?.status ?? "running") !== "running") delete st.runs[String(e.issue)];
     }
     stateMod.saveState(root, st);
     out(c.green("state entries purged."));
@@ -558,7 +602,7 @@ async function cmdCleanup(opts, positionals) {
   }
 }
 
-async function cmdPage(opts, positionals) {
+async function cmdPage(opts: Record<string, unknown>, positionals: string[]): Promise<void> {
   const { root, repoInfo, config } = await context(opts);
   const action = positionals[0] ?? "init";
   const repo = repoInfo.nameWithOwner;
@@ -566,7 +610,7 @@ async function cmdPage(opts, positionals) {
   if (action === "init") {
     out(`publishing dashboard to ${c.cyan(config.statusBranch)}…`);
     const first = await statusPage.publishStatus(root, repoInfo, config, { force: true }).catch((err) => ({
-      error: err.message,
+      error: (err as Error).message,
     }));
     if (first?.error) throw new Error(`publish failed: ${first.error}`);
     out(`  ${c.green("pushed")} dashboard + status.json + deploy workflow`);
@@ -584,7 +628,7 @@ async function cmdPage(opts, positionals) {
     // (shipped on the status branch) triggers a clean first deploy.
     await statusPage.publishStatus(root, repoInfo, config, { force: true }).catch(() => {});
 
-    let url = null;
+    let url: string | null = null;
     for (let i = 0; i < 5 && !url; i++) {
       url = await statusPage.pageUrl(root, repo);
       if (!url) await new Promise((r) => setTimeout(r, 2000));
@@ -611,12 +655,12 @@ async function cmdPage(opts, positionals) {
   }
 }
 
-async function cmdNew(opts, positionals) {
+async function cmdNew(opts: Record<string, unknown>, positionals: string[]): Promise<void> {
   // Read body from stdin early, before context() call, to ensure stdin is in original state
-  let body = opts.body ?? "";
+  let body = (opts.body as string) ?? "";
   if (!body && opts.bodyFile) {
     // --body-file takes precedence
-    body = opts.bodyFile === "-" ? readFileSync(0, "utf8") : readFileSync(opts.bodyFile, "utf8");
+    body = opts.bodyFile === "-" ? readFileSync(0, "utf8") : readFileSync(opts.bodyFile as string, "utf8");
   } else if (!body) {
     // No --body or --body-file provided; check if stdin is piped
     if (!process.stdin.isTTY) {
@@ -629,7 +673,7 @@ async function cmdNew(opts, positionals) {
   const title = positionals.join(" ").trim();
   if (!title) throw new Error("usage: issue_attack new <title> [--body <text> | --body-file <path>] [--label a,b] [--no-ready]");
 
-  const labels = [];
+  const labels: string[] = [];
   if (!opts.noReady) labels.push(config.label);
   if (opts.label) {
     labels.push(...String(opts.label).split(",").map((s) => s.trim()).filter(Boolean));
@@ -647,9 +691,9 @@ async function cmdNew(opts, positionals) {
   }
 }
 
-async function cmdAccount(opts, positionals) {
+async function cmdAccount(opts: Record<string, unknown>, positionals: string[]): Promise<void> {
   const setTo = positionals[0];
-  const root = await git.resolveRoot(process.cwd(), opts.root);
+  const root = await git.resolveRoot(process.cwd(), opts.root as string | undefined);
   if (!root) throw new Error("not inside a git repository — or pass --root");
 
   if (setTo) {
@@ -686,14 +730,20 @@ async function cmdAccount(opts, positionals) {
   }
 }
 
-function clip(s, n) {
+function clip(s: string | null | undefined, n: number): string {
   const str = String(s ?? "");
   return str.length > n ? str.slice(0, n - 1) + "…" : str;
 }
 
 // ---- dispatch ----------------------------------------------------------------
 
-const COMMANDS = {
+interface CommandSpec {
+  fn: (opts: Record<string, unknown>, positionals: string[], extra?: Record<string, unknown>) => Promise<void>;
+  spec: ArgSpec;
+  extra?: Record<string, unknown>;
+}
+
+const COMMANDS: Record<string, CommandSpec> = {
   init: { fn: cmdInit, spec: { root: { type: "string" }, repo: { type: "string" } } },
   doctor: { fn: cmdDoctor, spec: { root: { type: "string" }, repo: { type: "string" } } },
   list: {
@@ -754,7 +804,7 @@ const COMMANDS = {
   account: { fn: cmdAccount, spec: { root: { type: "string" }, repo: { type: "string" } } },
 };
 
-export async function main(argv) {
+export async function main(argv: string[]): Promise<void> {
   const [name, ...rest] = argv;
   if (!name || name === "help" || name === "--help" || name === "-h") {
     out(HELP);
@@ -771,11 +821,11 @@ export async function main(argv) {
     process.exitCode = 1;
     return;
   }
-  let parsed;
+  let parsed: ParsedArgs;
   try {
     parsed = parseArgs(rest, cmd.spec);
   } catch (err) {
-    out(`${c.red(err.message)}\n\n${HELP}`);
+    out(`${c.red((err as Error).message)}\n\n${HELP}`);
     process.exitCode = 1;
     return;
   }

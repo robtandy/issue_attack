@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { checkCommand } from "../lib/policy.js";
+import { checkCommand } from "../dist/lib/policy.js";
 
 const ctx = { baseBranch: "main", branch: "agent/issue-12" };
 

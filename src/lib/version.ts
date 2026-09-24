@@ -5,8 +5,8 @@
 // package.json is imported (not read from disk at runtime) so bundlers and
 // `bun build --compile` can inline it into the distributed artifact.
 
-import pkg from "../package.json" with { type: "json" };
+import pkg from "../../package.json" with { type: "json" };
 
-const version = pkg.version;
+const version: string = pkg.version;
 
 export default version;

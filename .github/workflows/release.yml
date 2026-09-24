@@ -19,6 +19,9 @@ jobs:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
 
+      - name: Install dev dependencies (TypeScript toolchain)
+        run: npm ci
+
       - name: Check tag matches package.json version
         run: |
           v="${GITHUB_REF_NAME#v}"
@@ -33,21 +36,24 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      # `npm test` (above) compiled src/ → dist/; the binaries embed the
+      # compiled module graph. Standalone binaries go to release/ so the
+      # npm package (files: ["dist", ...]) never ships them.
       - name: Compile binaries
         run: |
-          mkdir -p dist
+          mkdir -p release
           for target in bun-darwin-arm64 bun-darwin-x64 bun-linux-x64 bun-linux-arm64; do
-            bun build --compile --target "$target" --outfile "dist/ia-${target#bun-}" bin/issue-attack.js
+            bun build --compile --target "$target" --outfile "release/ia-${target#bun-}" dist/bin/issue-attack.js
           done
 
       # Runs the embedded copy of the whole module graph — would catch
       # runtime file reads that don't survive bundling (the $bunfs class of bug).
       - name: Smoke-test compiled binary
-        run: ./dist/ia-linux-x64 --version
+        run: ./release/ia-linux-x64 --version
 
       - name: Checksums
         run: |
-          cd dist
+          cd release
           for bin in ia-darwin-arm64 ia-darwin-x64 ia-linux-x64 ia-linux-arm64; do
             shasum -a 256 "$bin" > "$bin.sha256"
           done
@@ -55,7 +61,7 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "issue-attack ${GITHUB_REF_NAME#v}" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" release/* --title "issue-attack ${GITHUB_REF_NAME#v}" --generate-notes
 
       # Trusted publishing (OIDC): npm proves this workflow's identity to the
       # registry — no stored tokens. Requires npm >= 11.5.1 (Node 22 bundles

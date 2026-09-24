@@ -4,7 +4,59 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-export const DEFAULTS = {
+export interface Config {
+  // Issue claiming
+  label: string; // issues carrying this label are candidates
+  claimedLabel: string;
+  blockedLabel: string;
+  doneLabel: string;
+  prLabel: string; // label applied to PRs opened by agents
+
+  // Fleet sizing
+  maxConcurrent: number;
+  maxAttempts: number; // total supervised attempts per issue per run
+  pollSeconds: number; // --watch polling interval
+
+  // Budgets
+  timeBudgetMinutes: number; // hard wall-clock budget per attempt
+  softBudgetRatio: number; // steer "wrap up" at 80% of time/cost budget
+  costBudgetUsd: number | null; // hard model cost budget per attempt (null disables)
+  maxTokens: number | null; // hard session token budget (null disables)
+
+  // Issue interaction
+  heartbeatMinutes: number; // progress comment interval (0 disables)
+  recentComments: number; // comments inlined into the task prompt
+  commentSteerSeconds: number; // poll issue comments to steer live agents (0 disables)
+
+  // Status page (GitHub Pages)
+  statusBranch: string; // branch the dashboard is published to
+  statusPublishMinutes: number; // dashboard refresh cadence (0 disables)
+
+  // Worker runtime
+  model: string | null; // e.g. "sonnet:high" passed to pi --model
+  piBin: string;
+  baseBranch: string | null; // defaults to the repository default branch
+  prDraft: boolean; // open PRs as drafts
+  approve: boolean; // pass -a to pi (trust project-local config in the worktree)
+  noExtensions: boolean; // start workers with --no-extensions
+  extraFlags: string[]; // extra raw flags passed to pi
+
+  // GitHub account
+  ghAccount: string | null; // login pinned for this repo (set by `init` / `account`); null = whatever gh has active
+}
+
+export interface Dirs {
+  base: string;
+  worktrees: string;
+  sessions: string;
+  logs: string;
+  inbox: string;
+  stop: string;
+  config: string;
+  state: string;
+}
+
+export const DEFAULTS: Config = {
   // Issue claiming
   label: "issue-attack-ready", // issues carrying this label are candidates
   claimedLabel: "issue-attack-claimed",
@@ -45,12 +97,12 @@ export const DEFAULTS = {
   ghAccount: null, // login pinned for this repo (set by `init` / `account`); null = whatever gh has active
 };
 
-export function configPath(root) {
+export function configPath(root: string): string {
   return join(root, ".issue_attack", "config.json");
 }
 
 /** All runtime directories live under .issue_attack/ (gitignored). */
-export function dirs(root) {
+export function dirs(root: string): Dirs {
   const base = join(root, ".issue_attack");
   return {
     base,
@@ -64,15 +116,15 @@ export function dirs(root) {
   };
 }
 
-export function loadConfig(root) {
+export function loadConfig(root: string): Config {
   const cfg = { ...DEFAULTS };
   const file = configPath(root);
   if (existsSync(file)) {
     try {
-      const parsed = JSON.parse(readFileSync(file, "utf8"));
+      const parsed = JSON.parse(readFileSync(file, "utf8")) as Partial<Config>;
       Object.assign(cfg, parsed);
     } catch (err) {
-      throw new Error(`Invalid config JSON at ${file}: ${err.message}`);
+      throw new Error(`Invalid config JSON at ${file}: ${(err as Error).message}`);
     }
   }
   return cfg;
