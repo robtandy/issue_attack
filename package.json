@@ -1,6 +1,6 @@
 {
   "name": "issue-attack",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Autonomous CLI agents (pi harness) that work GitHub issues independently in isolated worktrees and open pull requests",
   "type": "module",
   "license": "MIT",

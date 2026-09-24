@@ -89,11 +89,11 @@ resource isolation (kill = `SIGTERM` the pid) and clean crash semantics.
 ## 3. Issue lifecycle
 
 ```
-                    label: agent-ready, no assignee, no agent-claimed
+                    label: issue-attack-ready, no assignee, no issue-attack-claimed
                                       │
                                       ▼
                         ┌────────── claim ──────────┐
-                        │ assign @me + agent-claimed│        (skip path:
+                        │ assign @me + issue-attack-claimed│        (skip path:
                         │ verify sole assignee      │──────▶ skipped)
                         └────────────┬──────────────┘
                                      ▼
@@ -124,7 +124,7 @@ resource isolation (kill = `SIGTERM` the pid) and clean crash semantics.
 
 State machine invariants:
 
-- A GitHub-side claim (assignee + `agent-claimed` label) exists **iff** a run is
+- A GitHub-side claim (assignee + `issue-attack-claimed` label) exists **iff** a run is
   live; every terminal path releases it.
 - `BLOCKED.md` in the worktree is the *only* blocked signal; PR-on-branch is
   the *only* success signal. Both are checked from the outside (git/GitHub),
@@ -173,9 +173,9 @@ Within one host, `state.json` + the fleet loop prevent double-pickup. Across
 hosts (or against humans), the issue itself is the mutex:
 
 1. Read the issue. Skip if: not open, has assignees other than me, has
-   `agent-claimed` (unless it's our own claim being re-owned, e.g. a resume
+   `issue-attack-claimed` (unless it's our own claim being re-owned, e.g. a resume
    after crash).
-2. Claim: `gh issue edit --add-assignee @me --add-label agent-claimed`.
+2. Claim: `gh issue edit --add-assignee @me --add-label issue-attack-claimed`.
 3. **Verify** (optimistic concurrency): re-fetch; if any assignee other than
    me appeared, we lost a race → remove our claim and skip.
 
@@ -398,7 +398,87 @@ real bugs within minutes — both now fixed and covered by the agent's own tests
 Both are the tripwire behaving exactly as designed — fail-safe — but each
   false positive burns a run's budget, so precision matters.
 
-## 14. Alternatives considered
+## 14. Asynchronous base drift
+
+The fleet's defining hazard: an agent works for minutes in a worktree cut from
+base at claim time, while the human (or other agents' PRs) keep merging to
+base. Response, layer by layer:
+
+1. **Cut fresh**: every run does `git fetch origin <base>` and cuts its branch
+   from `origin/<base>` — never a stale local main.
+2. **Merge before PR (contract)**: workers must `git fetch` and
+   `git merge origin/<base>` before opening their PR, resolving conflicts
+   themselves (or BLOCKED.md if genuinely unresolvable). Merge only — never
+   rebase, never force-push — because the branch is already public and
+   force-push is policy-denied; a rebase would strand the agent.
+3. **Verified success (supervisor)**: `succeeded` requires an *open PR on the
+   branch*, checked from GitHub state — and now also its mergeability. If the
+   PR conflicts (`mergeable: false` / `mergeStateStatus: DIRTY`), the
+   supervisor does not stop there: it sends the agent a merge-and-resolve
+   prompt and keeps watching (bounded by `maxAttempts` and the run budget).
+   If repair can't complete, the outcome comment and the dashboard carry a
+   conflict warning with the exact `resume` command.
+4. **Resume syncs**: resumes instruct the agent to merge base first, since
+   blocked runs often sit long enough for base to move substantially.
+5. **BEHIND vs DIRTY**: a PR that is merely behind base (still mergeable) is
+   left alone — GitHub merges it fine. Repair targets conflicts, not
+   staleness; strict up-to-date-branch protection is repo policy, and with it
+   the repair loop covers that case too.
+
+**Post-run conflict recovery**: If the base branch moves *after* a run completes
+successfully, the PR may become conflicted. The supervisor detects this on the next
+status check (via the `conflicts: true` field) and keeps the issue available for
+re-claiming: no `done` label is added, the claim is released, and the issue stays
+in the `issue-attack-ready` queue. The fleet will automatically pick it up and resume,
+sending the agent a merge-and-resolve prompt to fix the new conflicts.
+
+Not handled yet (roadmap): overlap-aware claiming (two agents editing the same files
+will still conflict; the repair loop resolves it, but serializing by touched
+paths would avoid the churn), and cross-host status merges (multi-machine fleets).
+
+### Repair loop mechanics
+
+The conflict repair loop is bounded by `maxAttempts` total attempts per run:
+if each attempt lands a PR that still conflicts, the agent exhausts attempts,
+and the run ends with a `conflict` warning in the outcome comment and dashboard.
+Time and cost budgets apply throughout repair as normal — an expensive merge
+resolution consumes budget like any other work. When repair cannot complete,
+`issue_attack resume N` picks up in the same session and worktree with a fresh
+budget, avoiding re-exploration.
+
+Field note: in a fleet, several agents' PRs may land near-simultaneously, so a
+single repair pass can be superseded by another merge minutes later. The
+bounded loop deliberately trades completeness for termination: it repairs once
+per remaining attempt and then hands the conflict to a human (or a fresh
+`resume`) rather than chasing a moving base forever.
+
+## 15. Attribution
+
+Activity lands under the operator's GitHub identity (that is the point of
+account pinning), so provenance must be explicit. The stack, layer by layer:
+
+- **Commits**: every agent commit ends with
+  `Co-authored-by: issue-attack <issue-attack@users.noreply.github.com>`.
+  Enforced mechanically, not by instruction: `ensureWorktree` installs a
+  `prepare-commit-msg` hook (shared, in `.issue_attack/hooks/`) and points the
+  worktree at it via `core.hooksPath` — set with `--worktree` scoped config so
+  the operator's own commits in the main checkout are never touched. The hook
+  is idempotent (won't duplicate the trailer) and runs for merge commits too.
+- **PRs**: `[agent]` title prefix (contract *and* supervisor-enforced —
+  `enforcePrConventions` prepends it post-hoc if the agent forgot), the
+  `issue-attack` label, and a body footer identifying the tool and the issue
+  worked (appended by the supervisor if absent).
+- **Comments**: supervisor comments are self-describing (status marker,
+  outcome text) and link to the tool repo.
+
+Deliberately no separate identity: a machine user or GitHub App would move
+activity out from under the operator's name, which is the opposite of what
+was asked. If a distinct identity is wanted later, pinning a dedicated
+account (`issue_attack account <login>`) requires zero code changes — the
+`Co-authored-by` trailer already names issue-attack, and a GitHub App bot
+(dependabot-style, with the BOT badge) is roadmap.
+
+## 16. Alternatives considered
 
 - **In-process SDK instead of subprocess**: rejected — coupling supervisor
   lifetime to worker lifetime; the RPC contract is stable and gives us
