@@ -431,6 +431,16 @@ comments once), and overlap-aware claiming (two agents editing the same files
 will still conflict; the repair loop resolves it, but serializing by touched
 paths would avoid the churn).
 
+### Repair loop mechanics
+
+The conflict repair loop is bounded by `maxAttempts` total attempts per run:
+if each attempt lands a PR that still conflicts, the agent exhausts attempts,
+and the run ends with a `conflict` warning in the outcome comment and dashboard.
+Time and cost budgets apply throughout repair as normal — an expensive merge
+resolution consumes budget like any other work. When repair cannot complete,
+`issue_attack resume N` picks up in the same session and worktree with a fresh
+budget, avoiding re-exploration.
+
 ## 15. Alternatives considered
 
 - **In-process SDK instead of subprocess**: rejected — coupling supervisor
