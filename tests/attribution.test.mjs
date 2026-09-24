@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { prFooter, hasPrFooter } from "../lib/prompt.js";
+import { prFooter, hasPrFooter, parseModelString } from "../lib/prompt.js";
 
 test("prFooter with issue and attempt", async (t) => {
   const cases = [
@@ -54,6 +54,83 @@ test("prFooter without attempt", async (t) => {
       }
       for (const substring of testCase.shouldNotContain) {
         assert.strictEqual(result.includes(substring), false, `Footer should not contain "${substring}"`);
+      }
+    });
+  }
+});
+
+test("parseModelString", async (t) => {
+  const cases = [
+    {
+      input: "claude-3-5-sonnet",
+      expected: { model: "claude-3-5-sonnet", thinking: null },
+    },
+    {
+      input: "claude-3-5-sonnet:high",
+      expected: { model: "claude-3-5-sonnet", thinking: "high" },
+    },
+    {
+      input: "anthropic/claude-3-5-sonnet",
+      expected: { model: "claude-3-5-sonnet", thinking: null },
+    },
+    {
+      input: "anthropic/claude-3-5-sonnet:medium",
+      expected: { model: "claude-3-5-sonnet", thinking: "medium" },
+    },
+    {
+      input: "gpt-4o",
+      expected: { model: "gpt-4o", thinking: null },
+    },
+    {
+      input: "gpt-4o:low",
+      expected: { model: "gpt-4o", thinking: "low" },
+    },
+    {
+      input: null,
+      expected: { model: null, thinking: null },
+    },
+    {
+      input: "",
+      expected: { model: null, thinking: null },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const description = `parseModelString("${testCase.input}")`;
+    await t.test(description, () => {
+      const result = parseModelString(testCase.input);
+      assert.deepStrictEqual(result, testCase.expected);
+    });
+  }
+});
+
+test("prFooter with model and thinking level", async (t) => {
+  const cases = [
+    {
+      input: { issue: 42, attempt: 1, model: "claude-3-5-sonnet", thinking: "high" },
+      shouldContain: ["This PR was opened by an", "issue #42", "claude-3-5-sonnet", "high"],
+    },
+    {
+      input: { issue: 7, model: "gpt-4o", thinking: "medium" },
+      shouldContain: ["This PR was opened by an", "issue #7", "gpt-4o", "medium"],
+    },
+    {
+      input: { issue: 99, attempt: 2, model: "gpt-4o-mini", thinking: null },
+      shouldContain: ["This PR was opened by an", "issue #99", "attempt 2", "gpt-4o-mini"],
+    },
+    {
+      input: { issue: 50, model: null, thinking: null },
+      shouldContain: ["This PR was opened by an", "issue #50"],
+    },
+  ];
+
+  for (const testCase of cases) {
+    const description = `prFooter with model=${testCase.input.model} thinking=${testCase.input.thinking}`;
+    await t.test(description, () => {
+      const result = prFooter(testCase.input);
+      assert.strictEqual(typeof result, "string", "prFooter should return a string");
+      for (const substring of testCase.shouldContain) {
+        assert.match(result, new RegExp(substring.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Footer should contain "${substring}"`);
       }
     });
   }
