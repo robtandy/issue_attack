@@ -441,6 +441,12 @@ resolution consumes budget like any other work. When repair cannot complete,
 `issue_attack resume N` picks up in the same session and worktree with a fresh
 budget, avoiding re-exploration.
 
+Field note: in a fleet, several agents' PRs may land near-simultaneously, so a
+single repair pass can be superseded by another merge minutes later. The
+bounded loop deliberately trades completeness for termination: it repairs once
+per remaining attempt and then hands the conflict to a human (or a fresh
+`resume`) rather than chasing a moving base forever.
+
 ## 15. Alternatives considered
 
 - **In-process SDK instead of subprocess**: rejected — coupling supervisor
