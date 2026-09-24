@@ -1,0 +1,37 @@
+{
+  "name": "issue_attack",
+  "version": "0.1.0",
+  "description": "Autonomous CLI agents (pi harness) that work GitHub issues independently in isolated worktrees and open pull requests",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robtandy/issue_attack.git"
+  },
+  "homepage": "https://github.com/robtandy/issue_attack#readme",
+  "bugs": {
+    "url": "https://github.com/robtandy/issue_attack/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "issue_attack": "bin/issue_attack.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md",
+    "DESIGN.md"
+  ],
+  "keywords": [
+    "cli",
+    "agent",
+    "github",
+    "issues",
+    "pull-requests",
+    "pi",
+    "automation",
+    "worktree"
+  ]
+}
