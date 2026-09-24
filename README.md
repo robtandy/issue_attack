@@ -74,16 +74,30 @@ cd issue_attack && npm link
 
 ```bash
 cd your-repo
-issue_attack init                  # config, labels, gitignore (safe to re-run)
-issue_attack doctor                # verify pi/gh/git/labels are all ready
+issue_attack init                  # config, labels, gitignore, account pin (safe to re-run)
+issue_attack doctor                # verify pi/gh/git/labels/account are all ready
 
-# Mark an issue as attackable and let an agent work it:
-gh issue edit 12 --add-label agent-ready
-issue_attack run 12                # foreground, streams the agent
-#   ... or the fleet version:
-issue_attack attack --max 3        # up to 3 issues concurrently
+# Create work for the fleet (uses the repo's pinned account) and attack it:
+issue_attack new "Fix the config loader" --body "Details…"   # labeled agent-ready
+issue_attack attack --max 3        # or: run <issue#> for one, in the foreground
 issue_attack attack --max 3 --watch # keep polling for newly labeled issues
 ```
+
+## Accounts
+
+If you have multiple GitHub accounts (say an enterprise account and a personal
+one), `gh` commands use whichever is *active* — and agents inherit it. To make
+a repo always use the right account, pin it:
+
+```bash
+issue_attack account robtandy      # pin; `init` pins automatically on first run
+```
+
+Every issue_attack command — including the agents it spawns and their `gh`
+calls — then runs as that account (via a per-process `GH_TOKEN`), regardless of
+which account `gh` currently has active. `issue_attack account` shows the
+pin and the effective login; `doctor` reports both. The pin lives in
+`.issue_attack/config.json` (local to your machine).
 
 When an agent finishes you get a PR (`Closes #12`). When it's blocked you get
 a comment listing exactly what it needs — answer in the issue, then:
@@ -96,9 +110,11 @@ issue_attack resume 12             # agent picks up where it left off
 
 | Command | What it does |
 |---|---|
-| `init` | Create `.issue_attack/config.json`, repo labels, gitignore entries |
-| `doctor` | Check node, pi, gh auth, repo, labels, config, models |
+| `init` | Create `.issue_attack/config.json`, repo labels, gitignore entries, pin the GitHub account |
+| `account [login]` | Show or pin the GitHub account used for this repo |
+| `doctor` | Check node, pi, gh auth, repo, labels, config, models, account |
 | `list [--label L]` | Show claimable issues (default label `agent-ready`) |
+| `new <title> [--body t \| --body-file f] [--label a,b] [--no-ready]` | Create an issue (labeled `agent-ready` by default) |
 | `run <issue#> [--model m] [--fresh]` | Work one issue in the foreground |
 | `attack [--max N] [--watch] [--label L] [--poll secs]` | Fleet: N agents concurrently, optionally polling for more |
 | `resume <issue#>` | Continue a blocked/failed/timed-out run with fresh issue comments |
@@ -144,7 +160,9 @@ Exit codes: `0` for `succeeded`/`blocked`/`stopped`, `1` for `failed`/`timeout`/
   "prDraft": false,
   "approve": true,                // workers pass -a (trust project config in worktree)
   "noExtensions": false,
-  "extraFlags": []                // extra flags for pi
+  "extraFlags": [],               // extra flags for pi
+
+  "ghAccount": null                // login pinned for this repo (set via `account`/`init`)
 }
 ```
 
