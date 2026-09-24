@@ -15,6 +15,9 @@
   "engines": {
     "node": ">=22"
   },
+  "scripts": {
+    "test": "node --test tests/"
+  },
   "bin": {
     "issue_attack": "bin/issue_attack.js"
   },
