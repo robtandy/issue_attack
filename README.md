@@ -6,7 +6,7 @@ isolated git worktrees, and open pull requests — powered by
 
 ```
 $ issue_attack attack --max 3 --watch
-attacking robtandy/issue_attack — label: agent-ready max: 3 (watch mode)
+attacking robtandy/issue_attack — label: issue-attack-ready max: 3 (watch mode)
 [#12] picked up: Migrate config loader to ESM
 [#12] attempt 1 on branch agent/issue-12
 [#12] claimed issue 12 as robtandy
@@ -35,6 +35,11 @@ Each agent:
   (`issue_attack page init`) — mobile-friendly, showing every agent, what it's
   doing, how long since it last acted, and links straight into the GitHub
   conversation
+- survives **asynchronous base drift**: workers merge the base branch before
+  opening their PR, and the supervisor verifies mergeability — a PR that
+  conflicts because main moved triggers a bounded merge-and-resolve repair
+  loop (merges only, never rebase/force-push), with conflict warnings on the
+  issue and dashboard if repair can't finish
 
 ## How it works, in one paragraph
 
@@ -78,7 +83,7 @@ issue_attack init                  # config, labels, gitignore, account pin (saf
 issue_attack doctor                # verify pi/gh/git/labels/account are all ready
 
 # Create work for the fleet (uses the repo's pinned account) and attack it:
-issue_attack new "Fix the config loader" --body "Details…"   # labeled agent-ready
+issue_attack new "Fix the config loader" --body "Details…"   # labeled issue-attack-ready
 issue_attack attack --max 3        # or: run <issue#> for one, in the foreground
 issue_attack attack --max 3 --watch # keep polling for newly labeled issues
 ```
@@ -113,8 +118,8 @@ issue_attack resume 12             # agent picks up where it left off
 | `init` | Create `.issue_attack/config.json`, repo labels, gitignore entries, pin the GitHub account |
 | `account [login]` | Show or pin the GitHub account used for this repo |
 | `doctor` | Check node, pi, gh auth, repo, labels, config, models, account |
-| `list [--label L]` | Show claimable issues (default label `agent-ready`) |
-| `new <title> [--body t \| --body-file f] [--label a,b] [--no-ready]` | Create an issue (labeled `agent-ready` by default) |
+| `list [--label L]` | Show claimable issues (default label `issue-attack-ready`) |
+| `new <title> [--body t \| --body-file f] [--label a,b] [--no-ready]` | Create an issue (labeled `issue-attack-ready` by default) |
 | `run <issue#> [--model m] [--fresh]` | Work one issue in the foreground |
 | `attack [--max N] [--watch] [--label L] [--poll secs]` | Fleet: N agents concurrently, optionally polling for more |
 | `resume <issue#>` | Continue a blocked/failed/timed-out run with fresh issue comments |
@@ -133,11 +138,11 @@ Exit codes: `0` for `succeeded`/`blocked`/`stopped`, `1` for `failed`/`timeout`/
 
 ```jsonc
 {
-  "label": "agent-ready",        // issues with this label are claimable
-  "claimedLabel": "agent-claimed",
-  "blockedLabel": "agent-blocked",
-  "doneLabel": "agent-done",
-  "prLabel": "agent",            // label applied to agent-opened PRs
+  "label": "issue-attack-ready",        // issues with this label are claimable
+  "claimedLabel": "issue-attack-claimed",
+  "blockedLabel": "issue-attack-blocked",
+  "doneLabel": "issue-attack-done",
+  "prLabel": "issue-attack",            // label applied to agent-opened PRs
 
   "maxConcurrent": 3,            // fleet size
   "maxAttempts": 2,              // supervised attempts per run (auto-retry)
@@ -189,11 +194,29 @@ While agents run (or `--watch` is polling), the supervisor republishes at most
 every `statusPublishMinutes`; the page itself refetches every 10s. Deploy once
 with `page init`; get the URL anytime with `page url`.
 
+## Attribution
+
+All issue_attack activity is marked so anyone can tell it from your own:
+
+- **Agent commits** end with a
+  `Co-authored-by: issue-attack <issue-attack@users.noreply.github.com>`
+  trailer, added by a git hook the supervisor installs in every agent worktree
+  (worktree-scoped — your own commits in the main checkout are never touched).
+- **PRs** carry the `[agent]` title prefix, the `issue-attack` label, and a
+  footer identifying the tool and the issue it worked. The supervisor enforces
+  the prefix and footer even when an agent forgets.
+- **Issue comments** from the supervisor are self-describing and link back to
+  the tool.
+
+Prefer a fully distinct identity? Pin a dedicated machine account with
+`issue_attack account <login>` and all commits/PRs/comments post as that
+account instead. (A GitHub-App bot identity with the BOT badge is roadmap.)
+
 ## The blocked loop
 
 1. Agent hits something it genuinely can't resolve → writes `BLOCKED.md`
    (what it tried, exactly what it needs) → stops.
-2. Supervisor comments it on the issue, labels it `agent-blocked`, releases
+2. Supervisor comments it on the issue, labels it `issue-attack-blocked`, releases
    the claim, **keeps the worktree + session**.
 3. You answer in the issue.
 4. `issue_attack resume <n>` re-claims, feeds your answers + prior context to
