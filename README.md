@@ -6,7 +6,7 @@ isolated git worktrees, and open pull requests — powered by
 
 ```
 $ issue_attack attack --max 3 --watch
-attacking robtandy/issue_attack — label: agent-ready max: 3 (watch mode)
+attacking robtandy/issue_attack — label: issue-attack-ready max: 3 (watch mode)
 [#12] picked up: Migrate config loader to ESM
 [#12] attempt 1 on branch agent/issue-12
 [#12] claimed issue 12 as robtandy
@@ -78,7 +78,7 @@ issue_attack init                  # config, labels, gitignore, account pin (saf
 issue_attack doctor                # verify pi/gh/git/labels/account are all ready
 
 # Create work for the fleet (uses the repo's pinned account) and attack it:
-issue_attack new "Fix the config loader" --body "Details…"   # labeled agent-ready
+issue_attack new "Fix the config loader" --body "Details…"   # labeled issue-attack-ready
 issue_attack attack --max 3        # or: run <issue#> for one, in the foreground
 issue_attack attack --max 3 --watch # keep polling for newly labeled issues
 ```
@@ -113,8 +113,8 @@ issue_attack resume 12             # agent picks up where it left off
 | `init` | Create `.issue_attack/config.json`, repo labels, gitignore entries, pin the GitHub account |
 | `account [login]` | Show or pin the GitHub account used for this repo |
 | `doctor` | Check node, pi, gh auth, repo, labels, config, models, account |
-| `list [--label L]` | Show claimable issues (default label `agent-ready`) |
-| `new <title> [--body t \| --body-file f] [--label a,b] [--no-ready]` | Create an issue (labeled `agent-ready` by default) |
+| `list [--label L]` | Show claimable issues (default label `issue-attack-ready`) |
+| `new <title> [--body t \| --body-file f] [--label a,b] [--no-ready]` | Create an issue (labeled `issue-attack-ready` by default) |
 | `run <issue#> [--model m] [--fresh]` | Work one issue in the foreground |
 | `attack [--max N] [--watch] [--label L] [--poll secs]` | Fleet: N agents concurrently, optionally polling for more |
 | `resume <issue#>` | Continue a blocked/failed/timed-out run with fresh issue comments |
@@ -133,11 +133,11 @@ Exit codes: `0` for `succeeded`/`blocked`/`stopped`, `1` for `failed`/`timeout`/
 
 ```jsonc
 {
-  "label": "agent-ready",        // issues with this label are claimable
-  "claimedLabel": "agent-claimed",
-  "blockedLabel": "agent-blocked",
-  "doneLabel": "agent-done",
-  "prLabel": "agent",            // label applied to agent-opened PRs
+  "label": "issue-attack-ready",        // issues with this label are claimable
+  "claimedLabel": "issue-attack-claimed",
+  "blockedLabel": "issue-attack-blocked",
+  "doneLabel": "issue-attack-done",
+  "prLabel": "issue-attack",            // label applied to agent-opened PRs
 
   "maxConcurrent": 3,            // fleet size
   "maxAttempts": 2,              // supervised attempts per run (auto-retry)
@@ -193,7 +193,7 @@ with `page init`; get the URL anytime with `page url`.
 
 1. Agent hits something it genuinely can't resolve → writes `BLOCKED.md`
    (what it tried, exactly what it needs) → stops.
-2. Supervisor comments it on the issue, labels it `agent-blocked`, releases
+2. Supervisor comments it on the issue, labels it `issue-attack-blocked`, releases
    the claim, **keeps the worktree + session**.
 3. You answer in the issue.
 4. `issue_attack resume <n>` re-claims, feeds your answers + prior context to
