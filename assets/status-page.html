@@ -142,12 +142,14 @@ const STATUS_ORDER = ["running", "blocked", "succeeded", "failed", "timeout", "s
 
 let data = null;
 let dataError = null;
+let lastFetchedAt = null;
 
 async function fetchData() {
   try {
     const res = await fetch("status.json?t=" + Date.now(), { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
     data = await res.json();
+    lastFetchedAt = new Date().toISOString();
     dataError = null;
   } catch (err) {
     dataError = err;
@@ -187,9 +189,9 @@ function renderHeader() {
     age.textContent = "can't reach status data";
     return;
   }
-  const ms = Date.now() - new Date(data.generatedAt).getTime();
+  const ms = Date.now() - new Date(lastFetchedAt).getTime();
   pill.className = "data-pill" + (ms > 5 * 60 * 1000 ? " stale" : " fresh");
-  age.textContent = "updated " + ago(data.generatedAt);
+  age.textContent = "updated " + ago(lastFetchedAt);
   if (data.host) host.textContent = "host: " + esc(data.host);
   if (data.publishCadenceSeconds) {
     document.getElementById("cadence").textContent =
