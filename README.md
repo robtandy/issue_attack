@@ -35,6 +35,11 @@ Each agent:
   (`issue_attack page init`) — mobile-friendly, showing every agent, what it's
   doing, how long since it last acted, and links straight into the GitHub
   conversation
+- survives **asynchronous base drift**: workers merge the base branch before
+  opening their PR, and the supervisor verifies mergeability — a PR that
+  conflicts because main moved triggers a bounded merge-and-resolve repair
+  loop (merges only, never rebase/force-push), with conflict warnings on the
+  issue and dashboard if repair can't finish
 
 ## How it works, in one paragraph
 
