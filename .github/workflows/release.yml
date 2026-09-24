@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write    # create the GitHub release
+  id-token: write   # npm trusted publishing (OIDC)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Check tag matches package.json version
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          if [ "$v" != "$pkg" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $pkg"
+            exit 1
+          fi
+
+      - name: Test
+        run: npm test
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Compile binaries
+        run: |
+          mkdir -p dist
+          for target in bun-darwin-arm64 bun-darwin-x64 bun-linux-x64 bun-linux-arm64; do
+            bun build --compile --target "$target" --outfile "dist/ia-${target#bun-}" bin/issue-attack.js
+          done
+
+      # Runs the embedded copy of the whole module graph — would catch
+      # runtime file reads that don't survive bundling (the $bunfs class of bug).
+      - name: Smoke-test compiled binary
+        run: ./dist/ia-linux-x64 --version
+
+      - name: Checksums
+        run: |
+          cd dist
+          for bin in ia-darwin-arm64 ia-darwin-x64 ia-linux-x64 ia-linux-arm64; do
+            shasum -a 256 "$bin" > "$bin.sha256"
+          done
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "issue-attack ${GITHUB_REF_NAME#v}" --generate-notes
+
+      # Trusted publishing (OIDC): npm proves this workflow's identity to the
+      # registry — no stored tokens. Requires npm >= 11.5.1 (Node 22 bundles
+      # npm 10, so upgrade first) and the package linked in npm settings.
+      - name: Publish to npm
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if npm view "issue-attack@$v" version >/dev/null 2>&1; then
+            echo "issue-attack@$v is already on npm — skipping publish"
+            exit 0
+          fi
+          npm install -g npm@11 >/dev/null
+          npm publish --access public
