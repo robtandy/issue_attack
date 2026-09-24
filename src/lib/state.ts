@@ -17,12 +17,29 @@ import { dirs } from "./config.js";
 export interface StateEntry {
   issue: number;
   status: string;
+  updatedAt: string;
+  mode?: string;
+  attempts?: number;
+  branch?: string;
+  worktree?: string;
   supervisorPid?: number;
   piPid?: number | null;
+  sessionId?: string | null;
+  startedAt?: string;
   endedAt?: string;
-  updatedAt: string;
-  note?: string;
-  [key: string]: unknown;
+  lastAgentUpdateAt?: string;
+  lastAction?: string | null;
+  note?: string | null;
+  title?: string;
+  issueUrl?: string;
+  prUrl?: string | null;
+  prNumber?: number | null;
+  conflicts?: boolean;
+  cost?: number | null;
+  tokens?: number | null;
+  model?: string | null;
+  /** Comment ids (GraphQL node ids) already handed to the agent (👀). */
+  ackCommentIds?: string[];
 }
 
 export interface State {
@@ -43,7 +60,7 @@ export function loadState(root: string): State {
   const file = dirs(root).state;
   if (!existsSync(file)) return { runs: {} };
   try {
-    return JSON.parse(readFileSync(file, "utf8"));
+    return JSON.parse(readFileSync(file, "utf8")) as State;
   } catch {
     return { runs: {} };
   }
@@ -61,19 +78,15 @@ export function getEntry(state: State, issueNumber: number): StateEntry | null {
   return state.runs[String(issueNumber)] ?? null;
 }
 
-export function setEntry(
-  state: State,
-  issueNumber: number,
-  patch: Partial<StateEntry>
-): StateEntry {
+export function setEntry(state: State, issueNumber: number, patch: Partial<StateEntry>): StateEntry {
   const key = String(issueNumber);
-  const prev = state.runs[key] ?? {};
-  const next: StateEntry = {
+  const prev: Partial<StateEntry> = state.runs[key] ?? {};
+  const next = {
     ...prev,
     ...patch,
     issue: Number(issueNumber),
     updatedAt: new Date().toISOString(),
-  };
+  } as StateEntry;
   state.runs[key] = next;
   return next;
 }
@@ -132,7 +145,7 @@ export function takeStop(root: string, issueNumber: number): boolean {
   }
 }
 
-export function isPidAlive(pid: number | undefined | null): boolean {
+export function isPidAlive(pid: number | null | undefined): boolean {
   if (!pid || pid <= 0) return false;
   try {
     process.kill(pid, 0);

@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 
-interface ExecResult {
+export interface ExecResult {
   code: number;
   stdout: string;
   stderr: string;
@@ -38,24 +38,24 @@ export async function exec(
       child.kill("SIGTERM");
     }, timeoutMs);
 
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (c: string) => (stdout += c));
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (c: string) => (stderr += c));
+    child.stdout!.setEncoding("utf8");
+    child.stdout!.on("data", (c) => (stdout += c));
+    child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", (c) => (stderr += c));
 
     if (input !== undefined) {
-      child.stdin.write(input);
+      child.stdin!.write(input);
     }
-    child.stdin.end();
+    child.stdin!.end();
 
-    child.on("error", (err: Error) => {
+    child.on("error", (err) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       reject(err);
     });
 
-    child.on("close", (code: number | null, signal: string | null) => {
+    child.on("close", (code, signal) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);

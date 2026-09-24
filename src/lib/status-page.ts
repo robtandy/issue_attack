@@ -17,91 +17,23 @@ import { hostname } from "node:os";
 import { exec, must } from "./exec.js";
 import * as gh from "./gh.js";
 import * as stateMod from "./state.js";
-import { Config } from "./config.js";
+import type { RepoInfo } from "./gh.js";
+import type { Config } from "./config.js";
+import type { StateEntry } from "./state.js";
+import VERSION from "./version.js";
 
-interface RepoInfo {
-  nameWithOwner: string;
-  defaultBranch: string;
-}
-
-interface AgentEntry {
-  issue: number;
-  issueUrl?: string;
-  title?: string;
-  status?: string;
-  branch?: string;
-  prUrl?: string;
-  startedAt?: string;
-  endedAt?: string;
-  updatedAt?: string;
-  lastAgentUpdateAt?: string;
-  lastAction?: string;
-  cost?: number;
-  tokens?: number;
-  model?: string;
-  sessionId?: string;
-  note?: string;
-  attempts?: number;
-  prNumber?: number;
-  conflicts?: boolean;
-}
-
-interface StatusPayload {
-  generatedAt: string;
-  generatedBy: string;
-  repo: string;
-  repoUrl: string;
-  defaultBranch: string;
-  host: string;
-  publishCadenceSeconds: number;
-  agents: Array<{
-    issue: number;
-    issueUrl: string;
-    title: string;
-    status: string;
-    attempt: number;
-    branch: string | null;
-    branchUrl: string | null;
-    prUrl: string | null;
-    prNumber: number | null;
-    conflicts: boolean;
-    startedAt: string | null;
-    endedAt: string | null;
-    lastAgentUpdateAt: string | null;
-    lastAction: string | null;
-    cost: number | null;
-    tokens: number | null;
-    model: string | null;
-    session: string | null;
-    note: string | null;
-  }>;
-  unclaimed: Array<{
-    issue: number;
-    issueUrl: string;
-    title: string;
-    updatedAt?: string;
-  }>;
-}
-
-interface PublishResult {
-  skipped?: string;
-  pushed?: boolean;
-  at?: string;
-  agents?: number;
-}
-
-interface PageUrlResult {
-  ok: boolean;
-  created?: boolean;
-  needsForce?: boolean;
-  error?: string;
-  warn?: string;
-}
-
-const VERSION = JSON.parse(
-  readFileSync(new URL("../../package.json", import.meta.url), "utf8")
-).version as string;
 const ASSET = fileURLToPath(new URL("../../assets/status-page.html", import.meta.url));
+
+// Dashboard HTML: prefer the bundled copy (text import — `bun build --compile`
+// embeds it in the binary), falling back to the file shipped next to lib/
+// for unbundled execution under plain Node.
+const loadHtml = async (): Promise<string> => {
+  try {
+    return (await import("../../assets/status-page.html", { with: { type: "text" } })).default;
+  } catch {
+    return readFileSync(ASSET, "utf8");
+  }
+};
 
 const COMMIT_ENV = {
   GIT_AUTHOR_NAME: "issue_attack",
@@ -109,6 +41,63 @@ const COMMIT_ENV = {
   GIT_COMMITTER_NAME: "issue_attack",
   GIT_COMMITTER_EMAIL: "issue_attack@agents",
 };
+
+export interface AgentCard {
+  issue: number;
+  issueUrl: string;
+  title: string;
+  status: string;
+  attempt: number;
+  branch: string | null;
+  branchUrl: string | null;
+  prUrl: string | null;
+  prNumber: number | null;
+  conflicts: boolean;
+  startedAt: string | null;
+  endedAt: string | null;
+  lastAgentUpdateAt: string | null;
+  lastAction: string | null;
+  cost: number | null;
+  tokens: number | null;
+  model: string | null;
+  session: string | null;
+  note: string | null;
+}
+
+export interface UnclaimedIssue {
+  issue: number;
+  issueUrl: string;
+  title: string;
+  updatedAt?: string;
+}
+
+export interface StatusPayload {
+  generatedAt: string;
+  generatedBy: string;
+  repo: string;
+  repoUrl: string;
+  defaultBranch: string;
+  host: string;
+  publishCadenceSeconds: number;
+  agents: AgentCard[];
+  unclaimed: UnclaimedIssue[];
+}
+
+export interface PublishResult {
+  skipped?: string;
+  pushed?: boolean;
+  at?: string;
+  agents?: number;
+  error?: string;
+}
+
+export interface PageSetupResult {
+  ok: boolean;
+  created?: boolean;
+  needsForce?: boolean;
+  error?: string;
+  warn?: string;
+}
 
 /** Deploy workflow committed to the default branch by `page init`. */
 export function workflowYaml(statusBranch: string): string {
@@ -186,26 +175,26 @@ export async function buildPayload(
 
   const rank: Record<string, number> = { running: 0, blocked: 1 };
   const agents = entries
-    .map((e) => ({
+    .map((e: StateEntry) => ({
       issue: e.issue,
       issueUrl: e.issueUrl ?? `${repoUrl}/issues/${e.issue}`,
       title: e.title ?? `issue #${e.issue}`,
       status: e.status ?? "unknown",
-      attempt: (e.attempts ?? 1) as number,
-      branch: (e.branch ?? null) as string | null,
+      attempt: e.attempts ?? 1,
+      branch: e.branch ?? null,
       branchUrl: e.branch ? `${repoUrl}/tree/${e.branch}` : null,
-      prUrl: (e.prUrl ?? null) as string | null,
-      prNumber: (e.prNumber ?? null) as number | null,
-      conflicts: (e.conflicts ?? false) as boolean,
-      startedAt: (e.startedAt ?? null) as string | null,
-      endedAt: (e.endedAt ?? null) as string | null,
-      lastAgentUpdateAt: (e.lastAgentUpdateAt ?? e.endedAt ?? e.updatedAt ?? null) as string | null,
-      lastAction: (e.lastAction ?? null) as string | null,
-      cost: (e.cost ?? null) as number | null,
-      tokens: (e.tokens ?? null) as number | null,
-      model: (e.model ?? null) as string | null,
-      session: (e.sessionId ?? null) as string | null,
-      note: (e.note ?? null) as string | null,
+      prUrl: e.prUrl ?? null,
+      prNumber: e.prNumber ?? null,
+      conflicts: e.conflicts ?? false,
+      startedAt: e.startedAt ?? null,
+      endedAt: e.endedAt ?? null,
+      lastAgentUpdateAt: e.lastAgentUpdateAt ?? e.endedAt ?? e.updatedAt ?? null,
+      lastAction: e.lastAction ?? null,
+      cost: e.cost ?? null,
+      tokens: e.tokens ?? null,
+      model: e.model ?? null,
+      session: e.sessionId ?? null,
+      note: e.note ?? null,
     }))
     .sort(
       (a, b) =>
@@ -214,7 +203,7 @@ export async function buildPayload(
     );
 
   // Fetch unclaimed issues (agent-ready but not agent-claimed)
-  let unclaimed: Array<{ issue: number; issueUrl: string; title: string; updatedAt?: string }> = [];
+  let unclaimed: UnclaimedIssue[] = [];
   try {
     const readyIssues = await gh.listIssues(root, repo, label, 100);
     unclaimed = readyIssues
@@ -243,7 +232,7 @@ export async function buildPayload(
   };
 }
 
-let chain: Promise<PublishResult> = Promise.resolve({ skipped: "" } as PublishResult); // serialized publishes: terminal states are never dropped
+let chain: Promise<unknown> = Promise.resolve(); // serialized publishes: terminal states are never dropped
 let lastPublishAt = 0;
 
 /**
@@ -256,33 +245,76 @@ export function publishStatus(
   root: string,
   repoInfo: RepoInfo,
   config: Config,
-  { force = false } = {}
+  { force = false }: { force?: boolean } = {}
 ): Promise<PublishResult> {
   const task = () => doPublish(root, repoInfo, config, force);
-  const result = chain.then(task, task);
-  chain = result.catch(() => ({ error: "publish failed" } as unknown as PublishResult));
+  const result = chain.then(task, task) as Promise<PublishResult>;
+  chain = result.catch(() => {});
   return result;
 }
 
-async function doPublish(root: string, repoInfo: RepoInfo, config: Config, force: boolean): Promise<PublishResult> {
+async function doPublish(
+  root: string,
+  repoInfo: RepoInfo,
+  config: Config,
+  force: boolean
+): Promise<PublishResult> {
   if (!force && (config.statusPublishMinutes ?? 0) <= 0) return { skipped: "disabled" };
   if (!force && Date.now() - lastPublishAt < (config.statusPublishMinutes ?? 2) * 60_000) {
     return { skipped: "throttled" };
   }
+
+  const branch = config.statusBranch ?? "gh-pages";
+
+  // ---- Cross-host coordination via git -----------------------------------------------
+  // When multiple issue-attack agents run concurrently (same host or different hosts),
+  // we need to prevent them from simultaneously publishing status updates to the same
+  // branch, which could cause race conditions or redundant GitHub API/Pages builds.
+  //
+  // Solution: Use git timestamps as a distributed coordination signal:
+  //   1. Fetch the remote status branch to get the latest commit
+  //   2. Read the commit's author timestamp (ISO 8601 format)
+  //   3. If another agent published within the status publish interval, skip this publish
+  //   4. Otherwise, publish as normal
+  //
+  // This works across hosts because:
+  //   - Agents use `git fetch origin <branch>` to fetch the latest remote state
+  //   - The remote commit timestamp is authoritative and globally visible
+  //   - Each agent independently decides to skip/publish based on the remote timestamp
+  //   - No explicit lock creation/deletion needed
+  //   - Works seamlessly with SSH, HTTPS, GitHub, or any git host
+  //
+  // Example timeline with 2-minute publish interval:
+  //   00:00 Agent A publishes (timestamp 00:00 on remote)
+  //   00:30 Agent B fetches → sees remote timestamp 00:00 → within 2m → skips
+  //   02:01 Agent B checks → sees remote timestamp 00:00 → beyond 2m → publishes
+  //
+  if (!force) {
+    await exec("git", ["fetch", "origin", branch], { cwd: root, timeoutMs: 30_000 }).catch(() => {});
+    const { code, stdout } = await exec("git", ["log", "-1", "--format=%aI", `origin/${branch}`], {
+      cwd: root,
+    });
+    if (code === 0 && stdout.trim()) {
+      const remoteTimestamp = new Date(stdout.trim()).getTime();
+      const publishIntervalMs = (config.statusPublishMinutes ?? 2) * 60_000;
+      if (Date.now() - remoteTimestamp < publishIntervalMs) {
+        // Another agent published recently; skip this publish
+        return { skipped: "recent-remote-publish" };
+      }
+    }
+  }
+
   lastPublishAt = Date.now();
   const payload = await buildPayload(root, repoInfo, config);
   const json = JSON.stringify(payload, null, 2) + "\n";
-  const html = readFileSync(ASSET, "utf8");
-  const branch = config.statusBranch ?? "gh-pages";
+  const html = await loadHtml();
 
   // Three blobs: the dashboard, the data, and the deploy workflow that
   // carries them to Pages (push triggers read the workflow from the pushed
   // ref, so it travels inside every publish — the branch is self-contained).
   const sha = async (content: string): Promise<string> =>
     (await must("git", ["hash-object", "-w", "--stdin"], { cwd: root, input: content })).trim();
-  const mk = async (
-    entries: Array<{ mode: string; type: string; sha: string; name: string }>
-  ): Promise<string> =>
+  const mk = async (entries: Array<{ mode: string; type: string; sha: string; name: string }>) =>
     (
       await must("git", ["mktree"], {
         cwd: root,
@@ -312,16 +344,19 @@ async function doPublish(root: string, repoInfo: RepoInfo, config: Config, force
   return { pushed: true, at: payload.generatedAt, agents: payload.agents.length };
 }
 
-// ---- GitHub Pages configuration ------------------------------------------------------
+// ---- GitHub Pages configuration ----------------------------------------------
 
-const pagesState = async (
-  root: string,
-  repo: string
-): Promise<Record<string, unknown> | null> => {
+interface PagesState {
+  html_url?: string;
+  build_type?: string;
+  source?: { branch?: string };
+}
+
+const pagesState = async (root: string, repo: string): Promise<PagesState | null> => {
   const { code, stdout } = await exec("gh", ["api", `repos/${repo}/pages`], { cwd: root });
   if (code !== 0) return null;
   try {
-    return JSON.parse(stdout) as Record<string, unknown>;
+    return JSON.parse(stdout) as PagesState;
   } catch {
     return null;
   }
@@ -329,8 +364,7 @@ const pagesState = async (
 
 /** GitHub Pages site URL for the repo, or null when Pages isn't enabled. */
 export async function pageUrl(root: string, repo: string): Promise<string | null> {
-  const state = await pagesState(root, repo);
-  return (state?.html_url as string | null) ?? null;
+  return (await pagesState(root, repo))?.html_url ?? null;
 }
 
 // gh api can choke ("unexpected end of JSON input") on empty 2xx bodies even
@@ -347,19 +381,19 @@ export async function enablePages(
   root: string,
   repo: string,
   statusBranch: string,
-  { force = false } = {}
-): Promise<PageUrlResult> {
+  { force = false }: { force?: boolean } = {}
+): Promise<PageSetupResult> {
   const current = await pagesState(root, repo);
 
-  if ((current as any)?.build_type === "workflow") return { ok: true, created: false };
+  if (current?.build_type === "workflow") return { ok: true, created: false };
 
   if (current) {
-    const hijack = (current as any)?.source?.branch !== statusBranch;
+    const hijack = current.source?.branch !== statusBranch;
     if (hijack && !force) {
       return {
         ok: false,
         needsForce: true,
-        error: `Pages already serves branch '${(current as any)?.source?.branch}' with build_type '${(current as any)?.build_type}'. Re-run with --force to convert it to the issue_attack dashboard.`,
+        error: `Pages already serves branch '${current.source?.branch}' with build_type '${current.build_type}'. Re-run with --force to convert it to the issue_attack dashboard.`,
       };
     }
   }
@@ -387,7 +421,7 @@ export async function enablePages(
     input: JSON.stringify({ build_type: "workflow" }),
   });
   const after = await pagesState(root, repo);
-  if ((after as any)?.build_type === "workflow") return { ok: true, created: !current };
+  if (after?.build_type === "workflow") return { ok: true, created: !current };
   if (put.code === 0 || isGhEmptyBodyQuirk(put.stderr)) {
     return { ok: true, created: !current, warn: "could not confirm build_type=workflow" };
   }
@@ -395,7 +429,7 @@ export async function enablePages(
     ok: after != null,
     created: !current,
     error: after
-      ? `deploys may be rate-limited (Pages build_type stayed '${(after as any)?.build_type}')`
+      ? `deploys may be rate-limited (Pages build_type stayed '${after.build_type}')`
       : put.stderr.trim(),
   };
 }

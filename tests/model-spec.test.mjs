@@ -6,7 +6,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseModelSpec, resolveModelSpec } from "../lib/runner.js";
+import { parseModelSpec, resolveModelSpec } from "../dist/lib/runner.js";
 
 test("parseModelSpec splits a known thinking suffix", () => {
   assert.deepEqual(parseModelSpec("sonnet:high"), { modelPart: "sonnet", level: "high" });

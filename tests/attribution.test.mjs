@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { prFooter, hasPrFooter, parseModelString } from "../lib/prompt.js";
+import { prFooter, hasPrFooter, parseModelString } from "../dist/lib/prompt.js";
 
 test("prFooter with issue and attempt", async (t) => {
   const cases = [

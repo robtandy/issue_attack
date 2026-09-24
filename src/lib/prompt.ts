@@ -1,7 +1,31 @@
 // Worker prompts. The contract is appended to pi's system prompt; the task
 // prompt is the first user message. BLOCKED.md is the worker's escape hatch.
 
-interface WorkerContractContext {
+import type { IssueComment } from "./gh.js";
+
+/**
+ * Extract model name and thinking level from a model string.
+ * Format examples: "sonnet", "claude-3-5-sonnet", "sonnet:high", "anthropic/claude-3-5-sonnet:high"
+ * Returns { model, thinking }
+ */
+export function parseModelString(
+  modelStr: string | null | undefined
+): { model: string | null; thinking: string | null } {
+  if (!modelStr) return { model: null, thinking: null };
+
+  // Remove provider prefix if present (e.g., "anthropic/" from "anthropic/claude-3-5-sonnet:high")
+  const withoutProvider = modelStr.includes("/") ? modelStr.split("/")[1] : modelStr;
+
+  // Split on colon to separate model from thinking level
+  const [model, thinking] = withoutProvider.split(":");
+
+  return {
+    model: model || null,
+    thinking: thinking || null,
+  };
+}
+
+export interface WorkerContractContext {
   issue: number;
   repo: string;
   base: string;
@@ -41,9 +65,7 @@ one optional issue comment, and BLOCKED.md when you are stuck.
    - title: \`[agent] issue #${issue}: <concise summary>\`
    - body must include: \`Closes #${issue}\`, a What changed section, a How verified section,
      and any assumptions you made.
-   - command shape: \`gh pr create --base ${base} --head ${branch} --title "..." --body "..."\`${
-    prDraft ? "\n   - open it as a draft: add --draft" : ""
-  }
+   - command shape: \`gh pr create --base ${base} --head ${branch} --title "..." --body "..."\`${prDraft ? "\n   - open it as a draft: add --draft" : ""}
 7. Stop once the PR is open. Do not merge, do not edit the PR afterwards, do not close anything.
 
 ## Keeping current with the base branch
@@ -100,17 +122,11 @@ the PR URL if you opened one, or the single word BLOCKED if you wrote BLOCKED.md
 plus a 1-3 line summary. No questions, no requests for confirmation.`;
 }
 
-interface CommentRecord {
-  author?: { login: string };
-  body?: string;
-  createdAt?: string;
-}
-
-interface TaskPromptContext {
+export interface TaskPromptContext {
   issue: number;
   title: string;
   body?: string;
-  comments?: CommentRecord[];
+  comments?: IssueComment[];
   base: string;
   branch: string;
   timeBudgetMinutes: number | null;
@@ -126,70 +142,74 @@ export function taskPrompt({
   comments,
   base,
   branch,
-  timeBudgetMinutes,
-  costBudgetUsd,
-  attempt,
 }: TaskPromptContext): string {
-  const budget = [];
-  if (timeBudgetMinutes) budget.push(`~${timeBudgetMinutes}m of agent time`);
-  if (costBudgetUsd) budget.push(`~$${costBudgetUsd} of model cost`);
-  const budgetLine = budget.length ? budget.join(" and ") : "no explicit budget";
-
-  const commentBlock =
-    comments && comments.length > 0
-      ? `\nRecent comments on the issue (oldest first, truncated):\n${comments
-          .map((cm) => `--- ${cm.author?.login ?? "?"}:\n${clip(cm.body, 1500)}`)
-          .join("\n")}\n`
-      : "";
+  const commentBlock = comments?.length
+    ? `\nRecent comments on the issue (oldest first, truncated):\n${comments
+        .map((cm) => `--- ${cm.author?.login ?? "?"}:\n${clip(cm.body, 1500)}`)
+        .join("\n")}\n`
+    : "\nNo comments yet on the issue.\n";
 
   return `Resolve GitHub issue #${issue}: "${title}".
 
 Issue body:
 ---
-${clip(body ?? "(no body)", 2000)}
+${clip(body, 6000) || "(empty)"}
 ---
 ${commentBlock}
-No comments yet on the issue.
-
 You are on branch \`${branch}\` in a fresh worktree of the repository (base branch: \`${base}\`).
-Budget for this attempt: ${budgetLine}. Attempt ${attempt}.
+
+Before implementing a fix, reproduce the issue if possible and write a failing test that
+demonstrates the problem. Then fix the issue and ensure the test passes. Your PR should
+include the test along with the fix.
 
 Follow the worker contract: work the required workflow top to bottom, verify your change,
 push your branch, open the PR, stop. If you are genuinely blocked, write BLOCKED.md and stop.`;
 }
 
-interface ResumePromptContext {
+export interface ResumePromptContext {
   issue: number;
-  branch: string;
-  base: string;
-  newComments?: CommentRecord[];
   prevStatus: string;
-  blockedNote?: string;
+  blockedNote?: string | null;
+  newComments?: IssueComment[];
+  newPrComments?: IssueComment[];
+  base: string;
+  branch: string;
   attempt: number;
   prHasConflicts: boolean;
 }
 
+/** Prompt used by `issue_attack resume` — continues an existing session. */
 export function resumePrompt({
   issue,
-  branch,
-  base,
-  newComments,
   prevStatus,
   blockedNote,
+  newComments,
+  newPrComments,
+  base,
+  branch,
   attempt,
   prHasConflicts,
 }: ResumePromptContext): string {
-  const newBlock =
-    newComments && newComments.length > 0
-      ? newComments
-          .map(
-            (cm) => `--- ${cm.author?.login ?? "?"}${cm.createdAt ? ` (${cm.createdAt})` : ""}:\n${clip(cm.body, 2000)}`
-          )
-          .join("\n")
-      : "(no new comments)";
+  const newBlock = newComments?.length
+    ? newComments
+        .map((cm) => `--- ${cm.author?.login ?? "?"} (${cm.createdAt}):\n${clip(cm.body, 2000)}`)
+        .join("\n")
+    : "(no new comments)";
+
+  const prBlock = newPrComments?.length
+    ? newPrComments
+        .map((cm) => `--- ${cm.author?.login ?? "?"} (${cm.createdAt}):\n${clip(cm.body, 2000)}`)
+        .join("\n")
+    : null;
 
   const conflictNote = prHasConflicts
     ? "\n**Important**: Your pull request currently has merge conflicts with the base branch. You must fix these conflicts by merging the latest base branch and resolving the conflicts before your PR can be merged."
+    : "";
+
+  const prCommentSection = prBlock
+    ? `\nNew comments on your pull request since you stopped:
+${prBlock}
+`
     : "";
 
   return `You are being resumed on GitHub issue #${issue} (attempt ${attempt}). Your session,
@@ -198,8 +218,7 @@ worktree and branch \`${branch}\` are preserved from your previous attempt.
 Why you stopped last time: ${prevStatus}.${conflictNote}
 ${blockedNote ? `\nYour previous BLOCKED.md:\n${clip(blockedNote, 3000)}\n` : ""}
 New maintainer activity on the issue since you stopped:
-${newBlock}
-
+${newBlock}${prCommentSection}
 The base branch may have advanced while you were stopped: \`git fetch origin\` and
 \`git merge origin/${base}\` (merge only — never rebase) if it has, resolving any
 conflicts before continuing.
@@ -209,13 +228,8 @@ work, and either open a PR or write a fresh BLOCKED.md. Delete BLOCKED.md once i
 applies. Same rules as before: PR when done, BLOCKED.md only when genuinely stuck.`;
 }
 
-interface ConflictPromptContext {
-  base: string;
-  branch: string;
-}
-
 /** Sent when a settled run's PR turns out to conflict with the moved base. */
-export function conflictPrompt({ base, branch }: ConflictPromptContext): string {
+export function conflictPrompt({ base, branch }: { base: string; branch: string }): string {
   return `Your pull request now conflicts with the base branch \`${base}\` — it advanced while you worked (pull requests merge asynchronously).
 
 Fix it now:
@@ -228,13 +242,8 @@ If a conflict genuinely cannot be resolved correctly without maintainer input,
 write BLOCKED.md describing it and stop.`;
 }
 
-interface ContinuePromptContext {
-  issue: number;
-  reason: string;
-}
-
 /** Auto-retry prompt after a run ends with neither PR nor BLOCKED.md. */
-export function continuePrompt({ issue, reason }: ContinuePromptContext): string {
+export function continuePrompt({ issue, reason }: { issue: number; reason: string }): string {
   return `Your previous attempt on issue #${issue} ended without opening a PR and without
 writing BLOCKED.md (${reason}). Continue the task now.
 
@@ -254,30 +263,33 @@ export const STATUS_MARKER = "<!-- issue_attack:status -->";
 
 export const TOOL_URL = "https://github.com/robtandy/issue_attack";
 
-interface PrFooterContext {
+export interface PrFooterContext {
   issue: number;
   attempt?: number;
+  model?: string | null;
+  thinking?: string | null;
 }
 
 /** Footer appended to agent-opened PRs (by the supervisor, if the agent didn't). */
-export function prFooter({ issue, attempt }: PrFooterContext): string {
+export function prFooter({ issue, attempt, model, thinking }: PrFooterContext): string {
+  const modelInfo = model ? ` with ${model}${thinking ? ` (thinking: ${thinking})` : ""}` : "";
   return `---
-🤖 This PR was opened by an [issue_attack](${TOOL_URL}) agent autonomously working issue #${issue}${attempt ? ` (attempt ${attempt})` : ""}.`;
+🤖 This PR was opened by an [issue_attack](${TOOL_URL}) agent autonomously working issue #${issue}${attempt ? ` (attempt ${attempt})` : ""}${modelInfo}.`;
 }
 
 /** Check whether a PR body already carries the footer. */
-export function hasPrFooter(body: string | undefined | null): boolean {
+export function hasPrFooter(body: string | null | undefined): boolean {
   return String(body ?? "").includes("This PR was opened by an");
 }
 
-interface StatusCommentContext {
+export interface StatusCommentContext {
   state: string;
   issue: number;
   attempt: number;
   elapsedMs?: number;
-  budget?: { timeBudgetMinutes: number };
-  usage?: { tokens?: string; maxTokens?: number };
-  lastAction?: string;
+  budget?: { timeBudgetMinutes?: number | null };
+  usage?: { cost?: number | null; tokens?: number | null; maxTokens?: number | null } | null;
+  lastAction?: string | null;
   extra?: string;
 }
 
@@ -302,9 +314,7 @@ export function statusCommentBody({
     `| Elapsed | ${fmtMin(elapsedMs)}${budget?.timeBudgetMinutes ? ` of ${budget.timeBudgetMinutes}m` : ""} |`,
   ];
   if (usage) {
-    lines.push(
-      `| Model usage | ${usage.tokens ?? "—"}${usage.maxTokens ? ` / ${usage.maxTokens}` : ""} |`
-    );
+    lines.push(`| Model usage | ${usage.tokens ?? "—"}${usage.maxTokens ? ` / ${usage.maxTokens}` : ""} |`);
   }
   if (lastAction) lines.push(`| Current | \`${clip(String(lastAction), 80)}\` |`);
   if (extra) lines.push(`| Note | ${clip(extra, 200)} |`);
@@ -316,14 +326,14 @@ export function statusCommentBody({
   return lines.join("\n");
 }
 
-interface OutcomeCommentContext {
+export interface OutcomeCommentContext {
   outcome: string;
   issue: number;
   prUrl?: string;
   blockedBody?: string;
-  lastText?: string;
+  lastText?: string | null;
   attempt?: number;
-  cost?: number;
+  cost?: number | null;
   elapsedMs?: number;
   logPath?: string;
   worktree?: string;
@@ -339,10 +349,7 @@ export function outcomeComment({
   blockedBody,
   lastText,
   attempt,
-  cost,
   elapsedMs,
-  logPath,
-  worktree,
   retrying,
   conflicts,
 }: OutcomeCommentContext): string {
@@ -355,7 +362,7 @@ export function outcomeComment({
       parts.push(
         "",
         "⚠️ The PR currently conflicts with the base branch — it moved after the PR opened. " +
-          `Run \`issue_attack resume ${issue}\` to have the agent merge and resolve, or fix it manually.`
+        `Run \`issue_attack resume ${issue}\` to have the agent merge and resolve, or fix it manually.`
       );
     } else {
       parts.push("", "Review and merge at your leisure; the agent is finished.");
@@ -382,25 +389,20 @@ export function outcomeComment({
       "",
       clip(lastText ?? "(no final message)", 2000),
       "",
-      retrying
-        ? ""
-        : `Session and worktree kept — \`issue_attack resume ${issue}\` to continue, \`issue_attack cleanup --purge ${issue}\` to discard.`
+      retrying ? "" : `Session and worktree kept — \`issue_attack resume ${issue}\` to continue, \`issue_attack cleanup --purge ${issue}\` to discard.`
     );
   } else if (outcome === "stopped") {
-    parts.push(
-      `✋ issue_attack agent was stopped by the operator (${stat}). Worktree and session kept; \`issue_attack resume ${issue}\` to continue.`
-    );
+    parts.push(`✋ issue_attack agent was stopped by the operator (${stat}). Worktree and session kept; \`issue_attack resume ${issue}\` to continue.`);
   }
   return parts.filter((p) => p !== "").join("\n");
 }
 
 function fmtMin(ms: number | undefined): string {
-  if (ms === undefined) return "—";
-  const m = Math.round(ms / 60000);
+  const m = Math.round((ms ?? 0) / 60000);
   return m < 1 ? "<1m" : `${m}m`;
 }
 
-function clip(s: string | undefined | null, n: number): string {
+function clip(s: string | null | undefined, n: number): string {
   const str = String(s ?? "");
   return str.length > n ? str.slice(0, n - 3) + "..." : str;
 }

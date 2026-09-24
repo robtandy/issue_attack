@@ -3,18 +3,18 @@
 
 import { existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { must, exec, ExecOptions } from "./exec.js";
+import { must, exec } from "./exec.js";
 
-export async function git(root: string, args: string[], opts: ExecOptions = {}): Promise<string> {
-  return must("git", args, { cwd: root, timeoutMs: opts.timeoutMs ?? 120_000 });
+export async function git(root: string, args: string[], timeoutMs = 120_000): Promise<string> {
+  return must("git", args, { cwd: root, timeoutMs });
 }
 
 export async function gitAllow(
   root: string,
   args: string[],
-  opts: ExecOptions = {}
-): Promise<{ code: number; stderr: string; stdout: string }> {
-  return exec("git", args, { cwd: root, timeoutMs: opts.timeoutMs ?? 120_000 });
+  timeoutMs = 120_000
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return exec("git", args, { cwd: root, timeoutMs });
 }
 
 /** Is `path` a registered worktree of this repo? */
@@ -65,10 +65,6 @@ function readHook(file: string): string | null {
   }
 }
 
-interface EnsureWorktreeResult {
-  created: boolean;
-}
-
 /**
  * Ensure a worktree exists at `path` on `branch` (created from origin/base if
  * new). Reuses existing worktree/branch across attempts and resumes, and
@@ -79,11 +75,11 @@ export async function ensureWorktree(
   path: string,
   branch: string,
   base: string
-): Promise<EnsureWorktreeResult> {
+): Promise<void> {
   await git(root, ["fetch", "origin", base]);
   if (await isWorktree(root, path)) {
     await setupHooks(root, path);
-    return { created: false };
+    return;
   }
 
   const { code } = await gitAllow(root, ["rev-parse", "--verify", `refs/heads/${branch}`]);
@@ -94,7 +90,6 @@ export async function ensureWorktree(
     await git(root, ["worktree", "add", "-b", branch, path, `origin/${base}`]);
   }
   await setupHooks(root, path);
-  return { created: true };
 }
 
 /** Remove a worktree; force skips dirty-tree protection. */
@@ -130,7 +125,7 @@ export function branchName(issueNumber: number): string {
 }
 
 /** Resolve repo root from a directory inside it. */
-export async function resolveRoot(from: string = process.cwd(), explicit?: string): Promise<string | null> {
+export async function resolveRoot(from: string, explicit?: string): Promise<string | null> {
   if (explicit) return explicit;
   const { code, stdout } = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: from });
   if (code !== 0) return null;

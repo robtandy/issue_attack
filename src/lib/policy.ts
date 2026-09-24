@@ -33,25 +33,25 @@ function commandPrefixes(command: string): string[] {
   return prefixes;
 }
 
-export interface PolicyResult {
-  ok: boolean;
-  rule?: string;
-  reason?: string;
-}
-
-interface PolicyContext {
+export interface PolicyContext {
   baseBranch: string;
   branch: string;
 }
 
-interface PolicyRule {
+export interface PolicyRule {
   rule: string;
   test: RegExp;
   reason: string;
 }
 
+export type PolicyResult = { ok: true } | { ok: false; rule: string; reason: string };
+
+/** A failed check: which rule fired and why. */
+export type PolicyViolation = Extract<PolicyResult, { ok: false }>;
+
 /**
- * Check a bash command against safety policy
+ * Check a bash command against the denylist. Only statements that start with
+ * a capable command are matched (see commandPrefixes above).
  */
 export function checkCommand(command: string, { baseBranch, branch }: PolicyContext): PolicyResult {
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -60,9 +60,7 @@ export function checkCommand(command: string, { baseBranch, branch }: PolicyCont
   const rules: PolicyRule[] = [
     {
       rule: "force-push",
-      test: new RegExp(
-        `\\bgit\\s+push\\b[^|;&]*(--force(?!-with-lease)|--force-with-lease|\\s-f\\b)`
-      ),
+      test: new RegExp(`\\bgit\\s+push\\b[^|;&]*(--force(?!-with-lease)|--force-with-lease|\\s-f\\b)`),
       reason: "force-pushing is not allowed",
     },
     {
@@ -153,7 +151,7 @@ export function checkCommand(command: string, { baseBranch, branch }: PolicyCont
 }
 
 /** The steering message sent to an agent on first violation. */
-export function violationMessage(v: PolicyResult): string {
+export function violationMessage(v: PolicyViolation): string {
   return (
     `[POLICY] Your command was flagged and stopped: ${v.reason} (${v.rule}). ` +
     `Hard rules: push only to your own branch, never force-push, never merge/close PRs, ` +

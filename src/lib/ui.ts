@@ -37,7 +37,7 @@ export function fmtTokens(t: number | null | undefined): string {
   return String(t);
 }
 
-interface ToolRecord {
+export interface ToolRecord {
   toolName?: string;
   args?: Record<string, unknown>;
 }

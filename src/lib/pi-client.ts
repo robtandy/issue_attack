@@ -9,7 +9,8 @@
 import { spawn, ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
-interface PiRecord {
+/** One JSONL record from the pi event stream (event or response). */
+export interface PiRecord {
   type: string;
   id?: string;
   success?: boolean;
@@ -18,6 +19,30 @@ interface PiRecord {
   error?: string;
   usage?: Record<string, unknown>;
   isStreaming?: boolean;
+  pendingMessageCount?: number;
+  /** set_state / message responses: the session's effective model. */
+  model?: PiModel;
+  /** message_update events carrying a text delta. */
+  assistantMessageEvent?: { type: string; delta?: string };
+  /** tool_execution_start events. */
+  toolName?: string;
+  args?: { command?: string; [key: string]: unknown };
+  /** message_end events. */
+  message?: { role?: string; content?: Array<{ type?: string; text?: string }> };
+  [key: string]: unknown;
+}
+
+/** A configured pi model, as listed by get_available_models. */
+export interface PiModel {
+  id: string;
+  name?: string;
+  provider?: string;
+}
+
+export interface PiState {
+  isStreaming?: boolean;
+  pendingMessageCount?: number;
+  model?: PiModel;
   [key: string]: unknown;
 }
 
@@ -27,7 +52,7 @@ interface PendingRequest {
   timer: NodeJS.Timeout;
 }
 
-interface PiClientOptions {
+export interface PiClientOptions {
   bin?: string;
   args?: string[];
   cwd?: string;
@@ -37,40 +62,26 @@ interface PiClientOptions {
   onExit?: (info: { code: number | null; signal: string | null }) => void;
 }
 
-interface ExitInfo {
+export interface ExitInfo {
   code: number | null;
   signal: string | null;
 }
 
-interface SessionStats {
-  [key: string]: unknown;
-}
-
-interface PiState {
-  isStreaming: boolean;
-  [key: string]: unknown;
-}
-
-interface SendCommand {
-  type: string;
-  [key: string]: unknown;
-}
-
 export class PiClient {
-  private bin: string;
-  private args: string[];
-  private cwd?: string;
-  private env: Record<string, string>;
-  private onRecord?: (rec: PiRecord) => void;
-  private onStderr?: (chunk: string) => void;
-  private onExit?: (info: ExitInfo) => void;
+  bin: string;
+  args: string[];
+  cwd?: string;
+  env: Record<string, string>;
+  onRecord?: (rec: PiRecord) => void;
+  onStderr?: (chunk: string) => void;
+  onExit?: (info: ExitInfo) => void;
 
-  child: ChildProcess | null;
-  private buf: string;
-  private pending: Map<string, PendingRequest>;
-  settledCount: number;
-  lastUsage: Record<string, unknown> | null;
-  exitInfo: ExitInfo | null;
+  child: ChildProcess | null = null;
+  private buf = "";
+  private pending = new Map<string, PendingRequest>();
+  settledCount = 0;
+  lastUsage: Record<string, unknown> | null = null;
+  exitInfo: ExitInfo | null = null;
 
   constructor(opts: PiClientOptions = {}) {
     this.bin = opts.bin ?? "pi";
@@ -80,13 +91,6 @@ export class PiClient {
     this.onRecord = opts.onRecord;
     this.onStderr = opts.onStderr;
     this.onExit = opts.onExit;
-
-    this.child = null;
-    this.buf = "";
-    this.pending = new Map();
-    this.settledCount = 0;
-    this.lastUsage = null;
-    this.exitInfo = null;
   }
 
   async start(): Promise<void> {
@@ -105,7 +109,7 @@ export class PiClient {
         this.kill();
       }, 20_000);
 
-      child.on("error", (err: Error) => {
+      child.on("error", (err) => {
         clearTimeout(failTimer);
         reject(new Error(`failed to start pi (${this.bin}): ${err.message}`));
       });
@@ -114,12 +118,12 @@ export class PiClient {
         resolve();
       });
 
-      child.stdout.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) => this.feed(chunk));
-      child.stderr.setEncoding("utf8");
-      child.stderr.on("data", (chunk: string) => this.onStderr?.(chunk));
+      child.stdout!.setEncoding("utf8");
+      child.stdout!.on("data", (chunk: string) => this.feed(chunk));
+      child.stderr!.setEncoding("utf8");
+      child.stderr!.on("data", (chunk: string) => this.onStderr?.(chunk));
 
-      child.on("exit", (code: number | null, signal: string | null) => {
+      child.on("exit", (code, signal) => {
         this.exitInfo = { code, signal };
         const err = new Error(`pi exited unexpectedly (code=${code} signal=${signal})`);
         for (const { reject: rj, timer } of this.pending.values()) {
@@ -159,7 +163,10 @@ export class PiClient {
       this.pending.delete(rec.id);
       clearTimeout(p.timer);
       if (rec.success) p.resolve(rec.data ?? {});
-      else p.reject(new Error(`pi command '${rec.command}' failed: ${rec.error ?? "unknown error"}`));
+      else
+        p.reject(
+          new Error(`pi command '${rec.command}' failed: ${rec.error ?? "unknown error"}`)
+        );
       return;
     }
 
@@ -176,7 +183,7 @@ export class PiClient {
   }
 
   /** Send a command; resolves with its response data. */
-  send(command: SendCommand, timeoutMs = 60_000): Promise<unknown> {
+  send(command: Record<string, unknown>, timeoutMs = 60_000): Promise<unknown> {
     if (this.exitInfo) return Promise.reject(new Error("pi process exited"));
     const id = randomUUID();
     const json = JSON.stringify({ id, ...command });
@@ -186,13 +193,12 @@ export class PiClient {
         reject(new Error(`pi command timed out after ${timeoutMs}ms: ${command.type}`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      if (!this.child) return reject(new Error("no child process"));
-      this.child.stdin.write(json + "\n", (err: Error | null) => err && reject(err));
+      this.child!.stdin!.write(json + "\n", (err) => err && reject(err));
     });
   }
 
   async getState(): Promise<PiState> {
-    return this.send({ type: "get_state" }, 30_000) as Promise<PiState>;
+    return (await this.send({ type: "get_state" }, 30_000)) as PiState;
   }
 
   /** Send a user message; steers when mid-run, starts/continues when idle. */
@@ -213,27 +219,48 @@ export class PiClient {
     return this.send({ type: "abort" }, 300_000);
   }
 
-  async stats(): Promise<SessionStats> {
-    return this.send({ type: "get_session_stats" }, 60_000) as Promise<SessionStats>;
+  async stats(): Promise<Record<string, unknown>> {
+    return (await this.send({ type: "get_session_stats" }, 60_000)) as Record<string, unknown>;
+  }
+
+  /** Switch the (possibly resumed) session to a specific model. */
+  async setModel(provider: string, modelId: string): Promise<unknown> {
+    return this.send({ type: "set_model", provider, modelId }, 15_000);
+  }
+
+  /** Set reasoning level: off|minimal|low|medium|high|xhigh|max. */
+  async setThinkingLevel(level: string): Promise<unknown> {
+    return this.send({ type: "set_thinking_level", level }, 15_000);
+  }
+
+  /** All configured models ({id, name, provider, ...}). */
+  async availableModels(): Promise<PiModel[]> {
+    const data = (await this.send({ type: "get_available_models" }, 30_000)) as {
+      models?: PiModel[];
+    };
+    return data?.models ?? [];
   }
 
   async lastAssistantText(): Promise<string | null> {
-    const data = (await this.send({ type: "get_last_assistant_text" }, 30_000)) as { text?: string };
+    const data = (await this.send({ type: "get_last_assistant_text" }, 30_000)) as {
+      text?: string;
+    };
     return data?.text ?? null;
   }
 
   /** Graceful shutdown: close stdin, escalate to SIGTERM/SIGKILL. */
   async close(): Promise<ExitInfo | null> {
     if (!this.child || this.exitInfo) return this.exitInfo;
-    const exited = new Promise<ExitInfo | null>((resolve) => this.child!.once("exit", resolve));
+    const child = this.child;
+    const exited = new Promise<ExitInfo | null>((resolve) => child.once("exit", resolve));
     try {
-      this.child.stdin.end();
+      child.stdin!.end();
     } catch {
       /* already closed */
     }
-    const term = setTimeout(() => this.child!.kill("SIGTERM"), 5_000);
-    const kill = setTimeout(() => this.child!.kill("SIGKILL"), 15_000);
-    const info = await Promise.race([exited, sleep(20_000).then(() => null as ExitInfo | null)]);
+    const term = setTimeout(() => child.kill("SIGTERM"), 5_000);
+    const kill = setTimeout(() => child.kill("SIGKILL"), 15_000);
+    const info = await Promise.race([exited, sleep(20_000).then(() => null)]);
     clearTimeout(term);
     clearTimeout(kill);
     return info ?? this.exitInfo;

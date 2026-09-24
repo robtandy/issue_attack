@@ -6,7 +6,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { unaddressedComments } from "../lib/runner.js";
+import { unaddressedComments } from "../dist/lib/runner.js";
 
 const human = (id, body) => ({
   id,
