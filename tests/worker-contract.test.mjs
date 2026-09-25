@@ -24,6 +24,9 @@ test("worker contract requires backgrounding long commands", () => {
   assert.match(contract, /background/i);
   assert.match(contract, /poll/i);
   assert.match(contract, /kill/);
+  // bg_wait, when the toolset provides it, must be used as a bounded poll — never an unbounded block
+  assert.match(contract, /bg_wait/);
+  assert.match(contract, /timeoutMs/);
 });
 
 test("wrap-up prompt handles background jobs and keeps its essentials", () => {
