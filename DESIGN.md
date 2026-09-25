@@ -18,8 +18,9 @@ This document is the rationale and contract for the implementation in `lib/`.
 3. Every terminal state of a run is *legible*: a human looking at the issue
    (or `status`) always knows what happened and what to do next.
 4. Humans can redirect or stop agents without killing processes by hand.
-5. Spend is bounded: every run has time, cost, and token budgets, enforced
-   with a graceful degradation ladder before hard abort.
+5. Runs are unbounded by design — no time, cost, or token limits. The stop
+   conditions are: the agent settles (PR or BLOCKED.md), errors, or the
+   operator (`stop`, steering, `Ctrl-C`).
 6. Blocked runs are resumable with full context — exploration shouldn't be
    thrown away when the agent needs one answer from a human.
 
@@ -41,7 +42,7 @@ This document is the rationale and contract for the implementation in `lib/`.
                        │  cli.js ─ runner.js ─ fleet loop (attack)     │
                        └───────┬──────────────┬───────────────┬──────┘
                                │              │               │
-                claim / label / comment     spawn + RPC     budgets, policy,
+                claim / label / comment     spawn + RPC     policy,
                 (gh API)                    (stdin/stdout)  heartbeat, stop
                                │              │               │
         ┌──────────────────────▼──────────────▼───────────────▼─────┐
@@ -99,8 +100,7 @@ resource isolation (kill = `SIGTERM` the pid) and clean crash semantics.
                                      ▼
                                   RUNNING ──────────────┐
                           worktree, pi session,        │
-                          task prompt                   │ steer / stop /
-                                       │                │ budget abort
+                          task prompt                   │ steer / stop
                      agent_settled + idle               ▼
                                        │            STOPPED ──▶ released
               ┌────────────────────────┼───────────────┐
@@ -149,7 +149,6 @@ to pi's system prompt. It encodes:
   recorded in the PR beats blocking.
 - **Hard rules**: push only own branch, never force-push, never merge/close,
   never edit the issue/labels/settings/secrets, no sudo, at most one comment.
-- **Budget compliance**: when told to wrap up, do it immediately.
 - **Final message format**: a short machine-parsed report (PR url or `BLOCKED`
   plus a summary) — never questions.
 
@@ -185,24 +184,17 @@ Livelock is possible in theory, irrelevant in practice for a personal fleet.
 Humans preempt trivially: assigning yourself to an issue makes it
 unclaimable and un-resumable — the runner refuses to steal an assigned issue.
 
-## 6. Budgets and degradation ladder
+## 6. Run termination
 
-Budgets (`timeBudgetMinutes`, `costBudgetUsd`, `maxTokens`) are enforced by the
-runner, not the worker, from `get_session_stats` (polled every ~10s):
-
-1. **Green** — normal run.
-2. **Soft threshold** (80% by default) — steer: "wrap up NOW, PR or
-   BLOCKED.md". The agent is given the chance to land its work gracefully.
-3. **Hard threshold** — `abort()`, wait briefly for settle, outcome `timeout`
-   with a comment explaining the budget, worktree+session kept for `resume`.
+Runs are unbounded: no time, cost, or token limits, and the supervisor never
+kills a run for spend. A run ends when the agent settles (PR or BLOCKED.md),
+when the pi process errors, or when the operator intervenes (`stop`,
+steering, `Ctrl-C`) — worktree and session are always kept for `resume`.
 
 A run also self-retries once (`maxAttempts`): if the agent settles with no PR
 and no BLOCKED.md, the runner sends a "continue: open a PR or write
 BLOCKED.md, don't redo finished work" prompt rather than declaring failure —
 cheap way to recover from agents that just… stop talking.
-
-Costs are best-effort (provider-reported usage; some gateways report zero).
-Time is the always-accurate backstop.
 
 ## 7. Operator interaction
 
@@ -222,7 +214,7 @@ Time is the always-accurate backstop.
   scripting.
 - Progress is also mirrored on the issue itself: a single editable status
   comment (found by a hidden HTML marker, updated every `heartbeatMinutes`)
-  with elapsed, tokens, cost, current action. Deleted when the run ends, so
+  with elapsed and current action. Deleted when the run ends, so
   the thread keeps only its final outcome comment — heartbeat noise never
   accumulates.
 
@@ -292,7 +284,7 @@ reports pin vs. effective login.
 
 | Failure | Detection | Handling | Issue-side effect |
 |---|---|---|---|
-| Worker hangs (model stall, tool hang) | time budget | soft steer → hard abort | timeout comment, resume possible |
+| Worker hangs (model stall, tool hang) | operator: `stop` or steering | `ia stop <issue>` or steer it to wrap up | stopped/failed comment, resume possible |
 | Provider outage mid-run | pi auto-retry events, then run settles/aborts | runner auto-retry prompt once, else failed | failed comment with last message |
 | Worker policy violation | `tool_execution_start` tripwire | 1st: steer a warning; 2nd: abort | failed comment citing the rule |
 | Supervisor crash (fleet dies) | `state.json` `running` entry with dead pid — reconciled by next `status`/`attack`/`resume` | orphan pi killed, entry marked failed with note; `attack` re-picks crash-orphans automatically | claim released lazily on next interaction with the issue |
@@ -325,7 +317,7 @@ Layers, outside-in:
    stays human.
 5. **Credentials**: workers inherit your `gh` and provider credentials.
    Scope them: a fine-grained PAT (repo: read/write, no admin) and a
-   low-limit API key for the model. The budget system caps spend per run.
+   low-limit API key for the model.
 
 Honest statement: this is **not** a sandbox. A capable model instructed to do
 so could evade a reactive regex tripwire (e.g. writing a script to disk and
@@ -340,8 +332,8 @@ with an in-process pi extension that can veto tool calls pre-execution.
   `issue_attack log --raw`.
 - **pi sessions** (`.issue_attack/sessions/issue-N/`): durable transcripts;
   `resume` continues the exact session, so nothing is re-explored.
-- **`state.json`**: the fleet registry — attempts, branch, PR url, cost,
-  tokens, timestamps, pids.
+- **`state.json`**: the fleet registry — attempts, branch, PR url,
+  timestamps, pids.
 - **The issue thread**: heartbeat + outcome comments; labels as state flags.
 - All machine-written comments carry a hidden marker so they can be found
   and edited/deleted by the supervisor without touching human comments.

@@ -53,7 +53,7 @@ issue-attack doctor                # verify everything is ready
 ```
 
 That's it! You now have:
-- `.issue_attack/config.json` — local configuration (your account, labels, budgets)
+- `.issue_attack/config.json` — local configuration (your account, labels)
 - Labels added to your repo (`issue-attack-ready`, `issue-attack-claimed`, etc.)
 - A git hook in future worktrees to add commit attribution
 
@@ -127,9 +127,6 @@ Configuration lives in `.issue_attack/config.json` (created by `init`). Key sett
 
 - `label`: issues with this label are claimable (default: `issue-attack-ready`)
 - `maxConcurrent`: fleet size (default: 3)
-- `timeBudgetMinutes`: wall-clock budget per run (default: 120)
-- `wrapupGraceMinutes`: minimum time between the wrap-up steer and the hard abort (default: 5)
-- `costBudgetUsd`: model cost budget per run (default: 5.0)
 - `model`: AI model to use (default: auto-selected by pi)
 
 Run `issue-attack doctor` to see all effective settings.
@@ -143,7 +140,7 @@ issue-attack page init      # one-time setup
 issue-attack page url       # get the dashboard URL
 ```
 
-The dashboard shows each agent's status, cost, and current action, updating as they work.
+The dashboard shows each agent's status and current action, updating as they work.
 
 ### Full Command Reference
 
@@ -180,9 +177,9 @@ worktrees, and monitors their progress. Each agent:
 - has a **strict contract** in its system prompt: understand the issue, implement
   the smallest correct change, verify, commit, push, open a PR — or write `BLOCKED.md`
 - works unattended with no human input
-- is constrained by time/cost budgets and a command safety filter
+- is constrained by a command safety filter
 - can be steered live via `steer` or issue comments
-- publishes its event stream so the supervisor can monitor and enforce budgets
+- publishes its event stream so the supervisor can monitor and steer it
 
 When finished: you get a PR (`Closes #<n>`) or a `BLOCKED.md` comment if the
 agent needs input.
@@ -207,7 +204,7 @@ issue-attack account my-bot-account
 
 Workers are confined to their branch and worktree and never push to the base
 branch, force-push, edit the issue itself, or touch secrets. They have a command
-safety filter and hard budgets (time, cost). Scope your `gh` and `pi` credentials
+safety filter. Scope your `gh` and `pi` credentials
 accordingly (a dedicated account or fine-grained PAT is recommended).
 
 Every run leaves a complete audit trail: local event log, pi session, and the

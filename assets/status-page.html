@@ -170,10 +170,6 @@ function ago(iso) {
   return d + "d " + (h % 24) + "h ago";
 }
 
-function money(x) {
-  return x == null ? null : "$" + Number(x).toFixed(2);
-}
-
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (ch) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -266,8 +262,6 @@ function card(a) {
   if (a.status === "running" && a.startedAt) bits.push("running <b>" + ago(a.startedAt).replace(" ago", "") + "</b>");
   if (a.branch) bits.push('<a href="' + esc(a.branchUrl) + '" target="_blank" rel="noopener">' + esc(a.branch) + "</a>");
   if (a.prUrl) bits.push('<a href="' + esc(a.prUrl) + '" target="_blank" rel="noopener">PR #' + a.prNumber + "</a>");
-  if (money(a.cost) != null && a.cost > 0) bits.push("<b>" + money(a.cost) + "</b>");
-  if (a.tokens) bits.push("<b>" + Number(a.tokens).toLocaleString() + "</b> tok");
   if (a.model) bits.push(esc(String(a.model).split("/").pop()));
   meta.innerHTML = bits.join("<span style='color:var(--faint)'>·</span>");
   el.appendChild(meta);
