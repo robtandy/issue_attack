@@ -127,7 +127,8 @@ Configuration lives in `.issue_attack/config.json` (created by `init`). Key sett
 
 - `label`: issues with this label are claimable (default: `issue-attack-ready`)
 - `maxConcurrent`: fleet size (default: 3)
-- `timeBudgetMinutes`: wall-clock budget per run (default: 45)
+- `timeBudgetMinutes`: wall-clock budget per run (default: 120)
+- `wrapupGraceMinutes`: minimum time between the wrap-up steer and the hard abort (default: 5)
 - `costBudgetUsd`: model cost budget per run (default: 5.0)
 - `model`: AI model to use (default: auto-selected by pi)
 
