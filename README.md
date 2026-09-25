@@ -78,6 +78,10 @@ When agents finish, they open PRs. If blocked, they comment on the issue with ex
 issue-attack resume 12             # agent picks up where it left off
 ```
 
+`resume` also notices merge conflicts: if the run's PR conflicts with the base
+branch (it moved after the PR opened), the agent is tasked to merge base,
+resolve the conflicts, re-run the tests, and push — before anything else.
+
 ## Common Commands
 
 | Command | Purpose |
@@ -87,7 +91,7 @@ issue-attack resume 12             # agent picks up where it left off
 | `new <title> [--body t]` | Create an issue for agents |
 | `run <issue#>` | Work one issue (foreground) |
 | `attack [--max N] [--watch]` | Run a fleet of agents |
-| `resume <issue#>` | Continue a blocked agent |
+| `resume <issue#>` | Continue a blocked agent; fix merge conflicts on its PR |
 | `stop <issue#>` | Stop a running agent |
 | `status` | See all running and completed agents |
 | `log <issue#>` | View a run's detailed log |
@@ -158,7 +162,7 @@ issue-attack attack [opts]          run a fleet (background)
   --max N                           max concurrent agents
   --watch                           keep polling for new issues
   --label L                         custom label (default: issue-attack-ready)
-issue-attack resume <issue#>        continue a blocked agent
+issue-attack resume <issue#>        continue a blocked agent (fixes PR conflicts)
 issue-attack status [--json]        show all runs and outcomes
 issue-attack steer <n> <msg>        live guidance to a running agent
 issue-attack stop <issue#> [--wait] stop a running agent
