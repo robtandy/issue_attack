@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>issue_attack — fleet status</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #e6edf3;
+    --dim: #8b949e; --faint: #6e7681; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --blue: #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149;
+    --orange: #db6d28; --gray: #8b949e; --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    padding: 32px 20px 60px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 18px; margin-bottom: 6px; }
+  h1 { font-size: 22px; margin: 0; font-weight: 650; }
+  h1 .dim { font-weight: 400; color: var(--dim); }
+  .data-pill {
+    font-size: 12.5px; color: var(--dim); border: 1px solid var(--border);
+    border-radius: 999px; padding: 3px 12px; background: var(--panel);
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .data-pill.fresh { color: var(--green); }
+  .data-pill.stale { color: var(--yellow); }
+  .data-pill.error { color: var(--red); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
+  .dot.pulse { animation: pulse 1.6s ease-out infinite; }
+  @keyframes pulse { 0% { opacity: 1; } 50% { opacity: .3; } 100% { opacity: 1; } }
+  .sub { color: var(--dim); font-size: 13px; margin: 0 0 28px; }
+  .sub code { font-family: var(--mono); font-size: 12.5px; color: var(--faint); }
+
+  h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--dim); margin: 34px 0 14px; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h2 .count { background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 0 8px; font-size: 11.5px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 9px;
+    border-left-width: 3px;
+  }
+  .card.running { border-left-color: var(--blue); }
+  .card.blocked { border-left-color: var(--yellow); }
+  .card.succeeded { border-left-color: var(--green); }
+  .card.failed { border-left-color: var(--red); }
+  .card.timeout { border-left-color: var(--orange); }
+  .card.stopped { border-left-color: var(--gray); }
+  .card.unclaimed { border-left-color: var(--purple); }
+
+  .card .top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12.5px; }
+  .chip { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; border: 1px solid; }
+  .chip.running { color: var(--blue); border-color: var(--blue); }
+  .chip.blocked { color: var(--yellow); border-color: var(--yellow); }
+  .chip.succeeded { color: var(--green); border-color: var(--green); }
+  .chip.failed { color: var(--red); border-color: var(--red); }
+  .chip.timeout { color: var(--orange); border-color: var(--orange); }
+  .chip.stopped { color: var(--gray); border-color: var(--gray); }
+  .chip.unclaimed { color: var(--purple); border-color: var(--purple); }
+  .top .ago { margin-left: auto; color: var(--dim); white-space: nowrap; }
+
+  .card .title { font-size: 15px; font-weight: 600; line-height: 1.35; }
+  .card .meta { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--dim); font-size: 12.5px; }
+  .card .meta b { color: var(--text); font-weight: 550; }
+  .card .action {
+    font-family: var(--mono); font-size: 11.5px; color: var(--faint);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .card .hint { font-size: 12.5px; color: var(--yellow); }
+  .card .hint.conflict { color: var(--red); }
+  .card .hint code { font-family: var(--mono); font-size: 11.5px; }
+  /* generous tap targets for touch */
+  .card .title a, .card .hint a, .card .meta a { padding: 3px 0; }
+
+  .empty {
+    border: 1px dashed var(--border); border-radius: 10px; padding: 26px 20px;
+    color: var(--dim); text-align: center; font-size: 13.5px;
+  }
+  footer { margin-top: 44px; color: var(--faint); font-size: 12.5px; text-align: center; }
+  footer a { color: var(--dim); }
+
+  /* ---- phones ---- */
+  @media (max-width: 560px) {
+    body { padding: 22px 14px 48px; font-size: 14.5px; }
+    h1 { font-size: 19px; }
+    .sub { margin-bottom: 22px; }
+    h2 { margin: 26px 0 11px; }
+    .grid { grid-template-columns: 1fr; gap: 11px; }
+    .card { padding: 14px 13px 12px; }
+    .data-pill { font-size: 12px; }
+  }
+
+  /* ---- tablets / small laptops ---- */
+  @media (min-width: 561px) and (max-width: 900px) {
+    .grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dot.pulse { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="repo">issue_attack <span class="dim">fleet status</span></h1>
+    <span class="data-pill" id="data-pill"><span class="dot"></span><span id="data-age">loading…</span></span>
+  </header>
+  <p class="sub">
+    autonomous agents working GitHub issues ·
+    page polls every <code>10s</code> · status publishes every
+    <code id="cadence">~2m</code> ·
+    <span id="host"></span>
+  </p>
+
+  <div id="sections"></div>
+
+  <footer>
+    generated by <a href="https://github.com/robtandy/issue_attack" target="_blank" rel="noopener">issue_attack</a>
+    · comment on an issue to reach its live agent
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+const REFRESH_MS = 10000;
+const STATUS_ORDER = ["running", "blocked", "succeeded", "failed", "timeout", "stopped"];
+
+let data = null;
+let dataError = null;
+let lastFetchedAt = null;
+
+async function fetchData() {
+  try {
+    const res = await fetch("status.json?t=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    data = await res.json();
+    lastFetchedAt = new Date().toISOString();
+    dataError = null;
+  } catch (err) {
+    dataError = err;
+  }
+}
+
+function ago(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) ms = 0;
+  const s = Math.floor(ms / 1000);
+  if (s < 8) return "just now";
+  if (s < 60) return s + "s ago";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m " + (s % 60) + "s ago";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h " + (m % 60) + "m ago";
+  const d = Math.floor(h / 24);
+  return d + "d " + (h % 24) + "h ago";
+}
+
+function money(x) {
+  return x == null ? null : "$" + Number(x).toFixed(2);
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[ch]));
+}
+
+function renderHeader() {
+  const pill = document.getElementById("data-pill");
+  const age = document.getElementById("data-age");
+  const host = document.getElementById("host");
+  if (dataError) {
+    pill.className = "data-pill error";
+    age.textContent = "can't reach status data";
+    return;
+  }
+  const ms = Date.now() - new Date(lastFetchedAt).getTime();
+  pill.className = "data-pill" + (ms > 5 * 60 * 1000 ? " stale" : " fresh");
+  age.textContent = "updated " + ago(lastFetchedAt);
+  if (data.host) host.textContent = "host: " + esc(data.host);
+  if (data.publishCadenceSeconds) {
+    document.getElementById("cadence").textContent =
+      "~" + Math.max(1, Math.round(data.publishCadenceSeconds / 60)) + "m";
+  }
+  if (data.repo) {
+    document.getElementById("repo").innerHTML =
+      '<a href="' + esc(data.repoUrl) + '" target="_blank" rel="noopener">' + esc(data.repo) + "</a>" +
+      ' <span class="dim">fleet status</span>';
+    document.title = data.repo + " — agent fleet status";
+  }
+}
+
+function unclaimedCard(u) {
+  const el = document.createElement("div");
+  el.className = "card unclaimed";
+
+  const top = document.createElement("div");
+  top.className = "top";
+  const chip = document.createElement("span");
+  chip.className = "chip unclaimed";
+  chip.textContent = "unclaimed";
+  top.appendChild(chip);
+  const agoEl = document.createElement("span");
+  agoEl.className = "ago";
+  agoEl.textContent = "updated " + ago(u.updatedAt);
+  top.appendChild(agoEl);
+  el.appendChild(top);
+
+  const t = document.createElement("div");
+  t.className = "title";
+  t.innerHTML = '<a href="' + esc(u.issueUrl) + '" target="_blank" rel="noopener">#' +
+    u.issue + " — " + esc(u.title || "(untitled)") + "</a>";
+  el.appendChild(t);
+
+  return el;
+}
+
+function card(a) {
+  const el = document.createElement("div");
+  el.className = "card " + a.status;
+
+  const top = document.createElement("div");
+  top.className = "top";
+  const chip = document.createElement("span");
+  chip.className = "chip " + a.status;
+  chip.textContent = a.status;
+  top.appendChild(chip);
+  if (a.attempt > 1) {
+    const att = document.createElement("span");
+    att.style.color = "var(--faint)";
+    att.textContent = "attempt " + a.attempt;
+    top.appendChild(att);
+  }
+  const agoEl = document.createElement("span");
+  agoEl.className = "ago";
+  agoEl.textContent = a.status === "running"
+    ? "agent active " + ago(a.lastAgentUpdateAt || a.startedAt)
+    : "ended " + ago(a.endedAt || a.lastAgentUpdateAt);
+  top.appendChild(agoEl);
+  el.appendChild(top);
+
+  const t = document.createElement("div");
+  t.className = "title";
+  t.innerHTML = '<a href="' + esc(a.issueUrl) + '" target="_blank" rel="noopener">#' + a.issue +
+    " — " + esc(a.title || "(untitled)") + "</a>";
+  el.appendChild(t);
+
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const bits = [];
+  if (a.status === "running" && a.startedAt) bits.push("running <b>" + ago(a.startedAt).replace(" ago", "") + "</b>");
+  if (a.branch) bits.push('<a href="' + esc(a.branchUrl) + '" target="_blank" rel="noopener">' + esc(a.branch) + "</a>");
+  if (a.prUrl) bits.push('<a href="' + esc(a.prUrl) + '" target="_blank" rel="noopener">PR #' + a.prNumber + "</a>");
+  if (money(a.cost) != null && a.cost > 0) bits.push("<b>" + money(a.cost) + "</b>");
+  if (a.tokens) bits.push("<b>" + Number(a.tokens).toLocaleString() + "</b> tok");
+  if (a.model) bits.push(esc(String(a.model).split("/").pop()));
+  meta.innerHTML = bits.join("<span style='color:var(--faint)'>·</span>");
+  el.appendChild(meta);
+
+  if (a.lastAction) {
+    const act = document.createElement("div");
+    act.className = "action";
+    act.title = a.lastAction;
+    act.textContent = a.lastAction;
+    el.appendChild(act);
+  }
+
+  if (a.status === "blocked") {
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.innerHTML = "⏸ waiting for you — <a href=\"" + esc(a.issueUrl) + "\" target=\"_blank\" rel=\"noopener\">reply on the issue</a>, then run <code>issue_attack resume " + a.issue + "</code>";
+    el.appendChild(hint);
+  } else if (a.status === "succeeded" && a.conflicts) {
+    const hint = document.createElement("div");
+    hint.className = "hint conflict";
+    hint.innerHTML = "⚠️ PR conflicts with the base branch (it moved) — run <code>issue_attack resume " + a.issue + "</code> to have the agent merge and resolve";
+    el.appendChild(hint);
+  } else if (a.status === "running") {
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.innerHTML = "💬 <a href=\"" + esc(a.issueUrl) + "\" target=\"_blank\" rel=\"noopener\">comment on the issue</a> to steer this agent live";
+    el.appendChild(hint);
+  }
+
+  return el;
+}
+
+function render() {
+  renderHeader();
+  const sections = document.getElementById("sections");
+  if (dataError || !data) { sections.innerHTML = ""; return; }
+
+  const agents = data.agents ?? [];
+  const unclaimed = data.unclaimed ?? [];
+
+  sections.innerHTML = "";
+  let any = false;
+
+  // Show unclaimed issues first
+  if (unclaimed.length > 0) {
+    any = true;
+    const h = document.createElement("h2");
+    h.innerHTML = 'Ready to claim <span class="count">' + unclaimed.length + "</span>";
+    sections.appendChild(h);
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    const sorted = unclaimed.slice().sort((x, y) => String(y.updatedAt ?? "").localeCompare(String(x.updatedAt ?? "")));
+    for (const u of sorted) grid.appendChild(unclaimedCard(u));
+    sections.appendChild(grid);
+  }
+
+  // Show running agents
+  const running = agents.filter((a) => a.status === "running")
+    .sort((x, y) => String(y.lastAgentUpdateAt ?? "").localeCompare(String(x.lastAgentUpdateAt ?? "")));
+  if (running.length > 0) {
+    any = true;
+    const h = document.createElement("h2");
+    h.innerHTML = 'Running now <span class="count">' + running.length + "</span>";
+    sections.appendChild(h);
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    for (const a of running) grid.appendChild(card(a));
+    sections.appendChild(grid);
+  }
+
+  // Show blocked agents
+  const blocked = agents.filter((a) => a.status === "blocked")
+    .sort((x, y) => String(y.lastAgentUpdateAt ?? "").localeCompare(String(x.lastAgentUpdateAt ?? "")));
+  if (blocked.length > 0) {
+    any = true;
+    const h = document.createElement("h2");
+    h.innerHTML = 'Awaiting you — blocked <span class="count">' + blocked.length + "</span>";
+    sections.appendChild(h);
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    for (const a of blocked) grid.appendChild(card(a));
+    sections.appendChild(grid);
+  }
+
+  // Show finished agents (limit to 12)
+  const finished = agents.filter((a) => !["running", "blocked"].includes(a.status))
+    .sort((x, y) => String(y.lastAgentUpdateAt ?? "").localeCompare(String(x.lastAgentUpdateAt ?? "")));
+  if (finished.length > 0) {
+    any = true;
+    const h = document.createElement("h2");
+    h.innerHTML = 'Finished <span class="count">' + finished.length + "</span>";
+    sections.appendChild(h);
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    for (const a of finished.slice(0, 12)) grid.appendChild(card(a));
+    sections.appendChild(grid);
+  }
+
+  if (!any) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.innerHTML = data.repo
+      ? "No agents have run on <a href='" + esc(data.repoUrl) + "' target='_blank' rel='noopener'>" + esc(data.repo) + "</a> yet.<br>Label an issue <code>agent-ready</code> and run <code>issue_attack attack</code>."
+      : "No agent runs recorded yet.";
+    sections.appendChild(e);
+  }
+}
+
+fetchData().then(render);
+setInterval(fetchData, REFRESH_MS);
+setInterval(render, 1000);
+</script>
+</body>
+</html>
