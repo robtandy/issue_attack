@@ -419,7 +419,11 @@ base. Response, layer by layer:
    If repair can't complete, the outcome comment and the dashboard carry a
    conflict warning with the exact `resume` command.
 4. **Resume syncs**: resumes instruct the agent to merge base first, since
-   blocked runs often sit long enough for base to move substantially.
+   blocked runs often sit long enough for base to move substantially — and
+   they do not trust the last run's snapshot: before dispatching, the
+   supervisor checks the *live* PR on the issue's branch. When it conflicts,
+   the resume prompt leads with the merge-and-resolve steps (fetch, merge,
+   resolve, re-test, push) instead of the generic "merge base if it moved".
 5. **BEHIND vs DIRTY**: a PR that is merely behind base (still mergeable) is
    left alone — GitHub merges it fine. Repair targets conflicts, not
    staleness; strict up-to-date-branch protection is repo policy, and with it
@@ -430,7 +434,11 @@ successfully, the PR may become conflicted. The supervisor detects this on the n
 status check (via the `conflicts: true` field) and keeps the issue available for
 re-claiming: no `done` label is added, the claim is released, and the issue stays
 in the `issue-attack-ready` queue. The fleet will automatically pick it up and resume,
-sending the agent a merge-and-resolve prompt to fix the new conflicts.
+sending the agent a merge-and-resolve prompt to fix the new conflicts. Because the
+recorded field goes stale the moment base moves again — and stopped runs can drop
+it entirely — every resume re-checks the live PR for the issue's branch before
+dispatching (`openPrWithConflicts`), so `resume` notices conflicts even when no run
+has looked at the PR since they appeared.
 
 Not handled yet (roadmap): overlap-aware claiming (two agents editing the same files
 will still conflict; the repair loop resolves it, but serializing by touched
@@ -438,9 +446,15 @@ paths would avoid the churn), and cross-host status merges (multi-machine fleets
 
 ### Repair loop mechanics
 
-The conflict repair loop is bounded by `maxAttempts` total attempts per run:
-if each attempt lands a PR that still conflicts, the agent exhausts attempts,
-and the run ends with a `conflict` warning in the outcome comment and dashboard.
+The conflict repair loop is bounded per run: a run may dispatch up to
+`maxAttempts` supervised passes in total — the initial task plus
+`maxAttempts - 1` repair passes (`conflictRepairBudget`). The budget resets
+on every resume, even when earlier runs exhausted the recorded attempt
+count: the outcome comment points the operator at `resume` precisely to
+fix conflicts, so a resumed run must always arrive with a repair budget.
+If each pass lands a PR that still conflicts, the agent exhausts the run's
+passes, and the run ends with a `conflict` warning in the outcome comment
+and dashboard.
 Time and cost budgets apply throughout repair as normal — an expensive merge
 resolution consumes budget like any other work. When repair cannot complete,
 `issue_attack resume N` picks up in the same session and worktree with a fresh
