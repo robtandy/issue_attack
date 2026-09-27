@@ -85,7 +85,7 @@ issue-attack resume 12             # agent picks up where it left off
 | `init` | Set up repo (one-time) |
 | `doctor` | Verify everything is ready |
 | `new <title> [--body t]` | Create an issue for agents |
-| `run <issue#>` | Work one issue (foreground) |
+| `run <issue#>[,...]` | Work issues sequentially, in order (foreground) |
 | `attack [--max N] [--watch]` | Run a fleet of agents |
 | `resume <issue#>` | Continue a blocked agent |
 | `stop <issue#>` | Stop a running agent |
@@ -150,7 +150,7 @@ issue-attack doctor                 verify everything is ready
 issue-attack account [login]        show or pin the GitHub account
 issue-attack list [--label L]       show claimable issues
 issue-attack new <title> [--body t] create an issue
-issue-attack run <issue#> [opts]    work one issue (foreground)
+issue-attack run <issue#>[,...] [opts] work issues sequentially in the given order (foreground)
 issue-attack attack [opts]          run a fleet (background)
   --max N                           max concurrent agents
   --watch                           keep polling for new issues
