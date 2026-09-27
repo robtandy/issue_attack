@@ -42,6 +42,19 @@ cd issue_attack && npm link
 
 Whichever you choose, verify your setup with `issue-attack doctor`.
 
+### Upgrading
+
+npm channel:
+
+```bash
+npm install -g issue-attack@latest
+issue-attack --version   # confirm the new version
+```
+
+- `npx issue-attack@latest …` always runs the newest release — one-off users never need to upgrade anything
+- **Binary** channel: re-run the same `curl … install.sh | sh` one-liner — it overwrites in place
+- If you originally installed from the git URL (`npm install -g robtandy/issue-attack`, the pre-0.3.0 instruction), re-install once from the registry — git-URL installs don't track releases: `npm uninstall -g issue-attack && npm install -g issue-attack`
+
 ## Onboarding a New Repository
 
 To start using issue-attack on a repository:
@@ -240,7 +253,17 @@ bun build --compile --outfile /tmp/ia-test bin/issue-attack.js && /tmp/ia-test -
 
 ## Releasing
 
-Tags drive everything. On a clean main with green tests:
+```bash
+scripts/release.sh              # bump patch, tag, push, watch CI, verify npm
+scripts/release.sh minor        # (or major)
+scripts/release.sh retry        # re-release the current version at HEAD — the recovery path
+scripts/release.sh --dry-run patch  # pre-flight + plan, no changes
+```
+
+The script pre-flights (clean, synced tree + green tests), pushes the tag by
+commit hash (immune to local tag pruning), waits for the release run, and
+verifies the npm registry and release assets. The manual equivalent, on a
+clean main with green tests:
 
 ```bash
 npm version patch               # bumps package.json and creates the v-tag
