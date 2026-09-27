@@ -63,7 +63,9 @@ jobs:
       - name: Publish to npm
         run: |
           v="${GITHUB_REF_NAME#v}"
-          if npm view "issue-attack@$v" version >/dev/null 2>&1; then
+          # Compare the resolved version, not the exit code: `npm view`
+          # exits 0 for an existing package with a nonexistent version.
+          if [ "$(npm view "issue-attack@$v" version 2>/dev/null)" = "$v" ]; then
             echo "issue-attack@$v is already on npm — skipping publish"
             exit 0
           fi
