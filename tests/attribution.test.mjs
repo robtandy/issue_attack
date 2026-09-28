@@ -78,6 +78,19 @@ test("parseModelString", async (t) => {
       expected: { model: "claude-3-5-sonnet", thinking: "medium" },
     },
     {
+      // nested model ids: earlier segments are provider routing, not the model
+      input: "ai-gw-baseten/baseten/zai-org/GLM-5.3",
+      expected: { model: "GLM-5.3", thinking: null },
+    },
+    {
+      input: "ai-gw-baseten/baseten/zai-org/GLM-5.3:max",
+      expected: { model: "GLM-5.3", thinking: "max" },
+    },
+    {
+      input: "ai-gw-anthropic-200k/anthropic/claude-haiku-4-5-20251001",
+      expected: { model: "claude-haiku-4-5-20251001", thinking: null },
+    },
+    {
       input: "gpt-4o",
       expected: { model: "gpt-4o", thinking: null },
     },
