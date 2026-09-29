@@ -119,7 +119,7 @@ say "verifying the npm registry…"
 REG=""
 ok=""
 i=0
-while [ $i -lt 20 ]; do
+while [ $i -lt 60 ]; do
   REG="$(curl -s https://registry.npmjs.org/issue-attack)"
   ok="$(printf '%s' "$REG" | node -e "
     let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
@@ -129,7 +129,7 @@ while [ $i -lt 20 ]; do
   sleep 5
   i=$((i + 1))
 done
-[ "$ok" = "yes" ] || die "npm registry does not show $V as latest — check the run's 'Publish to npm' step"
+[ "$ok" = "yes" ] || die "npm registry does not show $V as latest after 5 minutes (npm processing can lag) — check the run's 'Publish to npm' step"
 
 ASSETS=""
 i=0
