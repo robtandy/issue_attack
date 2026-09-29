@@ -101,6 +101,7 @@ issue-attack resume 12             # agent picks up where it left off
 | `run <issue#>[,...]` | Work issues sequentially, in order (foreground) |
 | `attack [--max N] [--watch]` | Run a fleet of agents |
 | `resume <issue#>` | Continue a blocked agent |
+| `review [--watch]` | Agent reviews open agent PRs — feedback or approve+merge |
 | `stop <issue#>` | Stop a running agent |
 | `status` | See all running and completed agents |
 | `log <issue#>` | View a run's detailed log |
@@ -141,6 +142,7 @@ Configuration lives in `.issue_attack/config.json` (created by `init`). Key sett
 - `label`: issues with this label are claimable (default: `issue-attack-ready`)
 - `maxConcurrent`: fleet size (default: 3)
 - `model`: AI model to use (default: auto-selected by pi)
+- `reviewModel`: model for `ia review` agents (default: falls back to `model`)
 
 Run `issue-attack doctor` to see all effective settings.
 
