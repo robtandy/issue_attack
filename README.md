@@ -98,7 +98,7 @@ issue-attack resume 12             # agent picks up where it left off
 | `init` | Set up repo (one-time) |
 | `doctor` | Verify everything is ready |
 | `new <title> [--body t]` | Create an issue for agents |
-| `run <issue#>[,...]` | Work issues sequentially, in order (foreground) |
+| `run <issue#>[,...]` | Work issues sequentially, in order — each waits for PR merge or feedback |
 | `attack [--max N] [--watch]` | Run a fleet of agents |
 | `resume <issue#>` | Continue a blocked agent |
 | `review [--watch]` | Agent reviews open agent PRs — feedback or approve+merge |
