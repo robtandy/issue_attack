@@ -26,4 +26,6 @@ test("worker contract requires backgrounding long commands", () => {
   // bg_wait, when the toolset provides it, must be used as a bounded poll — never an unbounded block
   assert.match(contract, /bg_wait/);
   assert.match(contract, /timeoutMs/);
+  // the agent may update its own PR after it opens (feedback loop), never another
+  assert.match(contract, /your own PR only/);
 });

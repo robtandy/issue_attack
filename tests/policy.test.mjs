@@ -183,16 +183,34 @@ test("denied: chained commands", async (t) => {
   });
 });
 
-test("denied: editing a PR (regression: the exact mutation class)", async (t) => {
-  for (const cmd of ["gh pr edit 12 --title x", "gh pr ready 12", "gh pr reopen 12"]) {
-    const result = checkCommand(cmd, { baseBranch: "main", branch: "agent/issue-12" });
-    assert.strictEqual(result.rule, "gh-pr-mutations", cmd);
+const OWN_CTX = { baseBranch: "main", branch: "agent/issue-12", prNumber: 31 };
+
+test("PR edits: own PR allowed, other PRs denied", async (t) => {
+  for (const cmd of [
+    "gh pr edit --title x", "gh pr edit 31 --title x",
+    "gh pr comment --body y", "gh pr comment 31 --body y", "gh pr ready",
+  ]) {
+    assert.deepStrictEqual(checkCommand(cmd, OWN_CTX), { ok: true }, cmd);
+  }
+  for (const cmd of ["gh pr edit 32 --title x", "gh pr comment 32 --body y", "gh pr ready 32"]) {
+    const r = checkCommand(cmd, OWN_CTX);
+    assert.strictEqual(r.rule, "gh-pr-other-mutation", cmd);
+  }
+  // without own-PR context (pre-PR first attempt, or reviewers): all forms denied
+  for (const cmd of ["gh pr edit --title x", "gh pr comment --body y", "gh pr edit 31 --title x"]) {
+    const r = checkCommand(cmd, { baseBranch: "main", branch: "agent/issue-12" });
+    assert.ok(!r.ok, cmd);
   }
 });
 
-test("denied: commenting on issues or PRs", async (t) => {
-  for (const cmd of ["gh pr comment 12 --body y", "gh issue comment 12 --body y"]) {
-    const result = checkCommand(cmd, { baseBranch: "main", branch: "agent/issue-12" });
-    assert.strictEqual(result.rule, "gh-comment", cmd);
+test("merging/closing/reopening always denied, even on the own PR", async (t) => {
+  for (const cmd of ["gh pr merge", "gh pr merge 31", "gh pr close", "gh pr close 31", "gh pr reopen 12"]) {
+    const r = checkCommand(cmd, OWN_CTX);
+    assert.strictEqual(r.rule, "gh-pr-mutations", cmd);
   }
+});
+
+test("issue comments stay denied — the supervisor owns the issue thread", async (t) => {
+  const r = checkCommand("gh issue comment 12 --body y", OWN_CTX);
+  assert.strictEqual(r.rule, "gh-issue-comment");
 });
