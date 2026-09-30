@@ -37,6 +37,12 @@ test("parseReviewVerdict: verdict anywhere in the message (observed: APPROVE at 
   assert.equal(inline.summary, "tests pass, resolves #26");
   // first verdict wins when the summary mentions the other keyword later
   assert.equal(parseReviewVerdict("REQUEST_CHANGES\n- fix X\n- I would approve after").action, "request_changes");
+  // verdict trailing at the end of a prose line (the other observed form)
+  const trail = parseReviewVerdict("I have completed the review. Everything checks out, tests pass. APPROVE");
+  assert.equal(trail.action, "approve");
+  assert.equal(trail.summary, "I have completed the review. Everything checks out, tests pass.");
+  // negation cannot read as approval
+  assert.equal(parseReviewVerdict("After consideration, I do not APPROVE").action, "none");
 });
 
 test("parseReviewVerdict: junk and near-misses", () => {
