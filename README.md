@@ -141,7 +141,7 @@ Configuration lives in `.issue_attack/config.json` (created by `init`). Key sett
 
 - `label`: issues with this label are claimable (default: `issue-attack-ready`)
 - `maxConcurrent`: fleet size (default: 3)
-- `model`: AI model to use (default: auto-selected by pi)
+- `model`: the model agents run on — **required** (`init` prompts with a searchable picker over pi's catalog; ia errors instead of falling back to pi's default)
 - `reviewModel`: model for `ia review` agents (default: falls back to `model`)
 
 Run `issue-attack doctor` to see all effective settings.
