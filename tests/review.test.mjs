@@ -23,10 +23,28 @@ test("parseReviewVerdict: first line decides", () => {
   assert.equal(parseReviewVerdict("REQUEST CHANGES\nfix").action, "request_changes");
 });
 
-test("parseReviewVerdict: junk and emptiness", () => {
+test("parseReviewVerdict: verdict anywhere in the message (observed: APPROVE at the end)", () => {
+  // the real-world failure: prose first, verdict last
+  const end = parseReviewVerdict("I have completed the review of this change.\n\nEverything checks out — tests pass and the fix is minimal.\n\nAPPROVE");
+  assert.equal(end.action, "approve");
+  // markdown-decorated verdicts
+  assert.equal(parseReviewVerdict("**APPROVE**\nall good").action, "approve");
+  assert.equal(parseReviewVerdict("### APPROVE\nall good").action, "approve");
+  assert.equal(parseReviewVerdict("## Verdict\n\nREQUEST CHANGES\n- add tests").action, "request_changes");
+  // inline summary on the verdict line
+  const inline = parseReviewVerdict("APPROVE — tests pass, resolves #26");
+  assert.equal(inline.action, "approve");
+  assert.equal(inline.summary, "tests pass, resolves #26");
+  // first verdict wins when the summary mentions the other keyword later
+  assert.equal(parseReviewVerdict("REQUEST_CHANGES\n- fix X\n- I would approve after").action, "request_changes");
+});
+
+test("parseReviewVerdict: junk and near-misses", () => {
   assert.equal(parseReviewVerdict(null).action, "none");
   assert.equal(parseReviewVerdict("").action, "none");
   assert.equal(parseReviewVerdict("The PR looks reasonable to me overall").action, "none");
+  // words starting with APPROVE- but not the verdict
+  assert.equal(parseReviewVerdict("APPROVALS are pending from the team").action, "none");
 });
 
 test("reviewedShaFromComments: extracts the latest review marker", () => {
