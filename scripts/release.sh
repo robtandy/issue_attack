@@ -129,7 +129,10 @@ while [ $i -lt 60 ]; do
   sleep 5
   i=$((i + 1))
 done
-[ "$ok" = "yes" ] || die "npm registry does not show $V as latest after 5 minutes (npm processing can lag) — check the run's 'Publish to npm' step"
+if [ "$ok" != "yes" ]; then
+  say "warn: npm is still processing $V (the run's publish step succeeded) — confirm shortly with: npm view issue-attack version"
+  say "warn: if it never appears, check the run's 'Publish to npm' step"
+fi
 
 ASSETS=""
 i=0
