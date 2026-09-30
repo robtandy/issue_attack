@@ -182,3 +182,17 @@ test("denied: chained commands", async (t) => {
     assert.strictEqual(result.rule, "push-base");
   });
 });
+
+test("denied: editing a PR (regression: the exact mutation class)", async (t) => {
+  for (const cmd of ["gh pr edit 12 --title x", "gh pr ready 12", "gh pr reopen 12"]) {
+    const result = checkCommand(cmd, { baseBranch: "main", branch: "agent/issue-12" });
+    assert.strictEqual(result.rule, "gh-pr-mutations", cmd);
+  }
+});
+
+test("denied: commenting on issues or PRs", async (t) => {
+  for (const cmd of ["gh pr comment 12 --body y", "gh issue comment 12 --body y"]) {
+    const result = checkCommand(cmd, { baseBranch: "main", branch: "agent/issue-12" });
+    assert.strictEqual(result.rule, "gh-comment", cmd);
+  }
+});
