@@ -102,6 +102,7 @@ issue-attack resume 12             # agent picks up where it left off
 | `attack [--max N] [--watch]` | Run a fleet of agents |
 | `resume <issue#>` | Continue a blocked agent |
 | `review [--watch]` | Agent reviews open agent PRs — feedback or approve+merge |
+| `checkin <issue#>` | Ask a running agent how it's going — reply prints right there (no GitHub comment) |
 | `stop <issue#>` | Stop a running agent |
 | `status` | See all running and completed agents |
 | `log <issue#>` | View a run's detailed log |
