@@ -5,7 +5,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseReviewVerdict, reviewedShaFromComments, effectiveReviewModel } from "../lib/review.js";
+import { parseReviewVerdict, reviewedShaFromComments, effectiveReviewModel, prRef } from "../lib/review.js";
 import { reviewComment } from "../lib/prompt.js";
 
 test("parseReviewVerdict: first line decides", () => {
@@ -75,6 +75,11 @@ test("reviewComment carries the head-sha marker and the right shape", () => {
   assert.match(changes, /<!-- issue_attack:review:abc123 -->/);
   assert.match(changes, /changes requested/);
   assert.match(changes, /issue_attack resume 12/); // feeds the resume loop
+});
+
+test("prRef always pairs the PR with its issue when known", () => {
+  assert.equal(prRef({ number: 54 }, 42), "PR #54 (issue #42)");
+  assert.equal(prRef({ number: 54 }, null), "PR #54");
 });
 
 test("effectiveReviewModel: flag > reviewModel > model > null", () => {
