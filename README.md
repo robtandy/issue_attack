@@ -144,6 +144,7 @@ Configuration lives in `.issue_attack/config.json` (created by `init`). Key sett
 - `maxConcurrent`: fleet size (default: 3)
 - `model`: the model agents run on — **required** (`init` prompts with a searchable picker and verifies the choice with a live call; ia errors instead of falling back to pi's default)
 - `reviewModel`: model for `ia review` agents (default: falls back to `model`)
+- `cleanupWorktreeOnSuccess`: remove an issue's worktree as soon as its PR opens (default: `true` — worktrees of compiled projects hold multi-GB build dirs, and `resume` recreates them from the branch; set `false` to keep)
 
 Before every run, ia verifies the configured model with a minimal live call through the same machinery workers use — broken credentials (expired logins, missing CLIs, provider outages) fail in seconds instead of mid-run. Skip it with `--no-verify`; `ia doctor` runs the same check on demand.
 
