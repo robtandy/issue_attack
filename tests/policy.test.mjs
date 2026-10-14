@@ -222,7 +222,6 @@ test("dangerous-rm: recursive on absolute/home blocked, single-file rm -f allowe
     "rm -rf /home/bits/.cache",       // absolute recursive
     "rm --recursive /",               // long form
     "rm -r /",                        // just -r, still recursive
-    "rm -fr /tmp",                    // combined flags, has r
     "rm -rf *",                       // wildcard
     "rm -rf $HOME",                   // env var
   ];
@@ -241,5 +240,28 @@ test("dangerous-rm: recursive on absolute/home blocked, single-file rm -f allowe
   ];
   for (const cmd of allowed) {
     assert.deepStrictEqual(checkCommand(cmd, { baseBranch: "main", branch: "agent/issue-12" }), { ok: true }, cmd);
+  }
+});
+
+test("dangerous-rm: /tmp is exempt from the recursive-delete block", async (t) => {
+  // agents legitimately clean and regenerate scratch dirs in /tmp
+  const allowed = [
+    "rm -rf /tmp/anti-tpch",           // the observed false positive
+    "rm -rf /tmp/pr120-review-new",     // reviewer scratch
+    "rm -rf /tmp/i49 /tmp/i92",         // multiple /tmp dirs
+  ];
+  for (const cmd of allowed) {
+    assert.deepStrictEqual(checkCommand(cmd, { baseBranch: "main", branch: "agent/issue-12" }), { ok: true }, cmd);
+  }
+  // everything else still blocked
+  const blocked = [
+    "rm -rf /home/bits/.cache",          // home
+    "rm -rf /usr/local/bin",             // system
+    "rm -rf /",                          // root
+    "rm -rf ~",                          // home shorthand
+  ];
+  for (const cmd of blocked) {
+    const result = checkCommand(cmd, { baseBranch: "main", branch: "agent/issue-12" });
+    assert.strictEqual(result.rule, "dangerous-rm", cmd);
   }
 });
