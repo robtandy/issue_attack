@@ -214,3 +214,32 @@ test("issue comments stay denied — the supervisor owns the issue thread", asyn
   const r = checkCommand("gh issue comment 12 --body y", OWN_CTX);
   assert.strictEqual(r.rule, "gh-issue-comment");
 });
+
+test("dangerous-rm: recursive on absolute/home blocked, single-file rm -f allowed", async (t) => {
+  const blocked = [
+    "rm -rf /",                      // the classic catastrophe
+    "rm -rf ~/stuff",                 // home-wide
+    "rm -rf /home/bits/.cache",       // absolute recursive
+    "rm --recursive /",               // long form
+    "rm -r /",                        // just -r, still recursive
+    "rm -fr /tmp",                    // combined flags, has r
+    "rm -rf *",                       // wildcard
+    "rm -rf $HOME",                   // env var
+  ];
+  for (const cmd of blocked) {
+    const result = checkCommand(cmd, { baseBranch: "main", branch: "agent/issue-12" });
+    assert.strictEqual(result.rule, "dangerous-rm", cmd);
+  }
+  // single-file deletes on absolute paths are fine — agents need them to
+  // clean scratch files (the observed false positive: an agent freeing disk
+  // space during a 99% full disk got aborted for `rm -f /home/bits/.../x`)
+  const allowed = [
+    "rm -f /home/bits/.cache/issue-107/tmp/x",   // the exact observed command
+    "rm -f /tmp/specific-file",                   // single tmp file
+    "rm /absolute/path/to/file",                  // no flags at all
+    "rm -rf ./relative/path",                    // relative is always fine
+  ];
+  for (const cmd of allowed) {
+    assert.deepStrictEqual(checkCommand(cmd, { baseBranch: "main", branch: "agent/issue-12" }), { ok: true }, cmd);
+  }
+});
