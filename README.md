@@ -2,6 +2,8 @@
 
 Autonomous AI agents that claim GitHub issues, implement fixes in isolated git worktrees, and open pull requests.
 
+All agent communication lives on GitHub — issues and PRs are the interface. You steer agents by commenting on the issue; feedback on PRs re-engages the agent automatically. Every agent's work is in git (its own branch, its own worktree), so nothing is lost between sessions, and you never need to remind an agent to commit and push — the supervisor enforces the workflow.
+
 ## What it does
 
 ```
