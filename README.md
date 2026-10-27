@@ -36,6 +36,21 @@ Agents cannot push to the base branch, force-push, merge/close PRs, edit the iss
 - **PR review feedback** — reviewer comments on the PR are picked up by `resume` and the fleet's PR-watch loop, automatically re-engaging the agent
 - **`BLOCKED.md`** — when an agent needs human input, it writes what it needs; answer in the issue, then `resume`
 
+## Dependencies
+
+Issues that depend on other issues can be gated with `depends-N` labels:
+
+```bash
+gh issue edit 7 --add-label depends-3       # issue 7 waits for issue 3
+gh issue edit 8 --add-label depends-3,depends-5  # waits for both
+```
+
+The fleet won't claim a dependent issue until all its dependencies are closed.
+When a dependency closes (merged PR closes the issue), dependent issues become
+claimable on the next poll cycle — no manual unblocking.
+
+`ia list` shows gated issues in a separate "waiting on dependencies" table.
+
 ## Multi-machine
 
 State (worktrees, sessions, logs) is per-machine. Coordination is via GitHub: issues are claimed with labels + assignees, PRs are shared. Run `ia attack` on as many machines as you want — each picks up different issues. `ia checkin --host user@box` crosses machines via SSH.
