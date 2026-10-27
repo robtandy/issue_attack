@@ -6,6 +6,8 @@ All agent communication lives on GitHub — issues and PRs are the interface. Yo
 
 This is agent-friendly to orchestrate. Run `ia attack --watch` and `ia review --watch` on a long-lived machine (a sandbox, a workspace, a always-on box). Then any agent — including yourself in a coding session — can manage the fleet through the same interfaces: create issues with `gh issue create`, steer agents with `ia steer` or by commenting on the issue, check on progress with `ia checkin --host` or `ia status`, and see results in the PRs. No special API, no state to synchronize — just GitHub and SSH.
 
+The three roles benefit from different models: an expensive deep-reasoning model for the orchestrator agent (the one managing issues and steering the fleet), a fast capable model for the workers (`model`), and a strong verifier for the reviewer (`reviewModel`). Each role has its own config knob, so you can mix a heavy model where judgment matters and a light one where throughput does.
+
 ## What it does
 
 ```
