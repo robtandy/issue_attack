@@ -57,18 +57,44 @@ issue-attack --version   # confirm the new version
 
 ## Onboarding a New Repository
 
-To start using issue-attack on a repository:
+### Prerequisites (once per machine)
+
+- **pi** installed and authenticated — [install pi](https://pi.dev) (`pi --version` to check)
+- **gh** (GitHub CLI) installed and authenticated — [install gh](https://cli.github.com), then `gh auth login`
+
+### Set up a repo (once per repository)
 
 ```bash
 cd your-repo
-issue-attack init                  # set up labels, config, and pin your account
-issue-attack doctor                # verify everything is ready
+issue-attack init
 ```
 
-That's it! You now have:
-- `.issue_attack/config.json` — local configuration (your account, labels)
+`init` verifies prerequisites, creates `.issue_attack/config.json`, adds GitHub
+labels, updates `.gitignore`, and prompts you to pick a model from your pi
+catalog (with a searchable typeahead picker if [fzf](https://github.com/junegunn/fzf)
+is installed). The choice is verified with a live model call before it's saved.
+
+That's it. You now have:
+- `.issue_attack/config.json` — local configuration (your account, labels, model)
 - Labels added to your repo (`issue-attack-ready`, `issue-attack-claimed`, etc.)
-- A git hook in future worktrees to add commit attribution
+- `.issue_attack/` gitignored (worktrees, sessions, and logs live here)
+
+### Your first run
+
+```bash
+# 1. mark an issue as attackable
+gh issue edit 12 --add-label issue-attack-ready
+
+# 2. run the fleet (agents work issues concurrently, open PRs, watch for feedback)
+issue-attack attack --max 3 --watch
+
+# 3. in another terminal, review the PRs (agent reviewers verdict, merge, or
+#    request changes — feedback loops back to the working agents)
+issue-attack review --watch
+```
+
+When you're done: `issue-attack status` shows the fleet, `issue-attack cleanup`
+reclaims disk, `issue-attack doctor` verifies everything.
 
 ## Using issue-attack
 
