@@ -8,6 +8,7 @@ Each agent runs in its own isolated git worktree on branch `agent/issue-<n>`, wo
 
 - `pi` on PATH, authenticated — [install pi](https://pi.dev)
 - `gh` on PATH, authenticated with push access to your repo
+- `fzf` on PATH — `brew install fzf` / `apt install fzf` (for the model picker)
 - A git repository with a GitHub remote
 - Node.js >= 22 — only needed for the npm install channel; the binary install doesn't use Node
 
@@ -61,6 +62,7 @@ issue-attack --version   # confirm the new version
 
 - **pi** installed and authenticated — [install pi](https://pi.dev) (`pi --version` to check)
 - **gh** (GitHub CLI) installed and authenticated — [install gh](https://cli.github.com), then `gh auth login`
+- **fzf** for the model picker — `brew install fzf` (macOS) or `apt install fzf` (Linux)
 
 ### Set up a repo (once per repository)
 
