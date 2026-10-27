@@ -4,6 +4,8 @@ Autonomous AI agents that claim GitHub issues, implement fixes in isolated git w
 
 All agent communication lives on GitHub — issues and PRs are the interface. You steer agents by commenting on the issue; feedback on PRs re-engages the agent automatically. Every agent's work is in git (its own branch, its own worktree), so nothing is lost between sessions, and you never need to remind an agent to commit and push — the supervisor enforces the workflow.
 
+This is agent-friendly to orchestrate. Run `ia attack --watch` and `ia review --watch` on a long-lived machine (a sandbox, a workspace, a always-on box). Then any agent — including yourself in a coding session — can manage the fleet through the same interfaces: create issues with `gh issue create`, steer agents with `ia steer` or by commenting on the issue, check on progress with `ia checkin --host` or `ia status`, and see results in the PRs. No special API, no state to synchronize — just GitHub and SSH.
+
 ## What it does
 
 ```
