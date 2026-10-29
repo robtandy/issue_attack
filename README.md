@@ -108,7 +108,6 @@ issue-attack review --watch                          # review PRs (another termi
 | `stop <n>` | Stop a running agent |
 | `status` / `log <n>` | Fleet overview / detailed run log |
 | `cleanup [--purge]` | Reclaim worktree disk space |
-| `page init` | Live dashboard on GitHub Pages |
 
 Shorthand: `ia` works everywhere (`ia attack --max 3 --watch`).
 
