@@ -55,6 +55,11 @@ The fleet won't claim a dependent issue until all its dependencies are closed.
 When a dependency closes (merged PR closes the issue), dependent issues become
 claimable on the next poll cycle — no manual unblocking.
 
+GitHub only auto-closes `Closes #N` references when a PR merges into the
+repository's **default** branch. When `baseBranch` is set to a non-default
+integration branch, `ia` closes the PR's referenced issues itself on merge —
+dependencies still unblock.
+
 `ia list` shows gated issues in a separate "waiting on dependencies" table.
 
 ## Multi-machine
@@ -118,6 +123,7 @@ Shorthand: `ia` works everywhere (`ia attack --max 3 --watch`).
 - `model` — **required**. Agents run on this model; verified with a live call before every run (`--no-verify` to skip). Thinking level as a `:suffix` (`"sonnet:high"`).
 - `reviewModel` — reviewer model (defaults to `model`). Use a stronger model for review than for work.
 - `maxConcurrent` — fleet size (default: 3)
+- `claimOrder` — claim ordering: `"updatedAt"` (default; honors the order you add the ready label, but any later issue edit re-queues it), `"createdAt"` (immune to edits), or `"number"` (fully deterministic)
 - `label` — which issues are claimable (default: `issue-attack-ready`)
 - `cleanupWorktreeOnMerge` — reclaim worktree when PR merges (default: `true`). Worktrees hold multi-GB build dirs for compiled projects; `resume` recreates them from the branch.
 

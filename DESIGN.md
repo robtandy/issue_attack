@@ -126,6 +126,10 @@ State machine invariants:
 
 - A GitHub-side claim (assignee + `issue-attack-claimed` label) exists **iff** a run is
   live; every terminal path releases it.
+- GitHub only auto-closes `Closes #N` references when a PR merges into the
+  repository's *default* branch — on a non-default `baseBranch` the
+  supervisor closes them itself at merge time, so `depends-N` gating keeps
+  working on integration branches.
 - `BLOCKED.md` in the worktree is the *only* blocked signal; PR-on-branch is
   the *only* success signal. Both are checked from the outside (git/GitHub),
   not trusted from the agent's self-report. The agent's final message is
@@ -191,6 +195,11 @@ kills a run for spend. A run ends when the agent settles (PR or BLOCKED.md),
 when the pi process errors, or when the operator intervenes (`stop`,
 steering, `Ctrl-C`) — worktree and session are always kept for `resume`.
 
+A closed issue is terminal — with one exception: `resume` on a closed issue
+whose PR is still open reopens it first. The `Closes #N` that closed the
+issue can fire while review feedback is still landing on the PR, and the
+agent must stay resumable to address that feedback.
+
 A run also self-retries once (`maxAttempts`): if the agent settles with no PR
 and no BLOCKED.md, the runner sends a "continue: open a PR or write
 BLOCKED.md, don't redo finished work" prompt rather than declaring failure —
@@ -206,8 +215,7 @@ cheap way to recover from agents that just… stop talking.
   anyone except the supervisor's own gh account, and posted after the run
   started) as `[ISSUE COMMENT]` steering messages. The issue thread becomes a
   two-way channel: the agent's blocked questions and heartbeats flow out,
-  maintainer answers flow in — no terminal required, works from a phone via the
-  dashboard links.
+  maintainer answers flow in — no terminal required; it works from a phone.
 - `stop N` → stop marker → runner aborts, classifies `stopped`, releases the
   claim. Double Ctrl-C in the fleet does the same for all agents.
 - `status` reconciles the world (see §8) and prints the table; `--json` for
@@ -218,56 +226,7 @@ cheap way to recover from agents that just… stop talking.
   the thread keeps only its final outcome comment — heartbeat noise never
   accumulates.
 
-### 7a. Status page (GitHub Pages dashboard)
-
-`page init` publishes a dashboard and keeps it current:
-
-```
-supervisor ──publishStatus (throttled, serialized)──▶ git plumbing ──force push──▶ gh-pages
-   │  buildPayload: state.json + cached issue titles                        │
-   │  git hash-object ×2 → git mktree → git commit-tree (orphan root)      ▼
-   │                                                     GitHub Pages serves
-   └─ runner hooks: on claim, every tick (≤ statusPublishMinutes),             │
-      on terminal state (forced); fleet loop publishes each poll cycle  ◀── page polls
-                                                                            status.json every 10s
-```
-
-Design decisions:
-
-- **Actions-based deploys, not branch builds**: GitHub Pages "deploy from a
-  branch" is rate-limited to ~10 builds/hour — useless for a live dashboard.
-  `page init` converts the site to `build_type: workflow`, and the deploy
-  workflow ships *inside every status publish* (push-triggered workflows are
-  read from the pushed ref, so the status branch is fully self-contained —
-  nothing is ever committed to the default branch). Every push triggers an
-  Actions deploy (exempt from the Pages build limit) with `concurrency:
-  cancel-in-progress`, so the freshest state wins. End-to-end freshness ≈
-  `statusPublishMinutes` + ~30s of Actions runtime.
-- **Cadence philosophy**: publishes are minute-scale — the dashboard exists to
-  catch stalls, not to stream. A stall is visible from the per-agent
-  `lastAgentUpdateAt` delta regardless of publish frequency, and the header's
-  "data updated" clock stays honest either way.
-- **git plumbing, not a worktree**: every publish builds `index.html` +
-  `status.json` into a fresh orphan-root commit and force-pushes the status
-  branch. No checkout is touched, no history grows, and concurrent publishes
-  are serialized through a promise queue — a terminal-state publish is queued
-  behind an in-flight one, never dropped.
-- **`generatedAt` staleness is a feature**: the header pill shows how long ago
-  the data was refreshed. If the supervisor dies or the laptop sleeps, the
-  page turns stale — that is the honest, observable signal, exactly the
-  inverse of heartbeat systems that keep looking alive from cache.
-- **Per-agent `lastAgentUpdateAt`** is persisted from real RPC events (tool
-  starts, assistant turns), so "agent active 4m ago" distinguishes a working
-  agent from a stalled one at a glance.
-- **Title caching**: runners cache issue title/url into `state.json` at claim
-  time, so routine publishes need zero GitHub API calls; a bounded self-healing
-  enrichment fills gaps for pre-existing entries.
-- **Existing Pages sites are respected**: if the repo already serves Pages
-  from another branch, `page init` refuses to hijack it without `--force`.
-- **Single host per repo** for now: concurrent hosts would force-push over
-  each other's branch (last writer wins). Multi-host status merge is roadmap.
-
-### 7b. GitHub account pinning
+### 7a. GitHub account pinning
 
 `gh` operates as whichever account is *active* — a trap when you juggle an
 enterprise and a personal login (enterprise tokens often cannot touch your
@@ -360,11 +319,9 @@ with an in-process pi extension that can veto tool calls pre-execution.
   and resume automatically (today: deliberate, manual).
 - **Multi-host fleets**: lease file in the repo or a GitHub-based lease
   (an issue comment with host id + heartbeat) so N machines share the queue
-  without the claim race back-off; status publishes would merge per-host
-  files instead of force-pushing a single branch.
+  without the claim race back-off.
 - **Review round**: after PR feedback (`/request-changes`), feed review
   comments into the same session and let the agent iterate.
-- **Cost dashboards**: aggregate session stats per repo/label/model.
 - **Templates per label**: e.g. `docs` issues get a lighter contract and a
   cheaper model — model selection per label already works via config,
   prompts don't yet.
@@ -408,7 +365,7 @@ base. Response, layer by layer:
    PR conflicts (`mergeable: false` / `mergeStateStatus: DIRTY`), the
    supervisor does not stop there: it sends the agent a merge-and-resolve
    prompt and keeps watching (bounded by `maxAttempts` and the run budget).
-   If repair can't complete, the outcome comment and the dashboard carry a
+   If repair can't complete, the outcome comment carries a
    conflict warning with the exact `resume` command.
 4. **Resume syncs**: resumes instruct the agent to merge base first, since
    blocked runs often sit long enough for base to move substantially.
@@ -426,13 +383,13 @@ sending the agent a merge-and-resolve prompt to fix the new conflicts.
 
 Not handled yet (roadmap): overlap-aware claiming (two agents editing the same files
 will still conflict; the repair loop resolves it, but serializing by touched
-paths would avoid the churn), and cross-host status merges (multi-machine fleets).
+paths would avoid the churn).
 
 ### Repair loop mechanics
 
 The conflict repair loop is bounded by `maxAttempts` total attempts per run:
 if each attempt lands a PR that still conflicts, the agent exhausts attempts,
-and the run ends with a `conflict` warning in the outcome comment and dashboard.
+and the run ends with a `conflict` warning in the outcome comment.
 Time and cost budgets apply throughout repair as normal — an expensive merge
 resolution consumes budget like any other work. When repair cannot complete,
 `issue_attack resume N` picks up in the same session and worktree with a fresh

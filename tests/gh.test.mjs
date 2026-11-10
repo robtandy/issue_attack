@@ -6,7 +6,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reactionArgs, editCommentArgs, deleteCommentArgs } from "../lib/gh.js";
+import { reactionArgs, editCommentArgs, deleteCommentArgs, closingRefs, sortIssuesByOrder } from "../lib/gh.js";
 
 const NODE_ID = "IC_kwDOUp3K2M8AAAABWwBbfg";
 
@@ -36,4 +36,74 @@ test("edit/delete args carry the node id and payload", () => {
   const d = deleteCommentArgs(NODE_ID);
   assert.ok(d.some((a) => a.includes("deleteIssueComment")));
   assert.ok(d.includes(`id=${NODE_ID}`));
+});
+
+// `Closes #N` parsing (closingRefs) backs the merge path: GitHub only
+// auto-closes referenced issues when a PR merges into the DEFAULT branch;
+// with a non-default base branch the supervisor must close them itself or
+// every depends-N dependent waits forever.
+
+test("closingRefs: parses all of GitHub's closing keywords", () => {
+  assert.deepEqual(closingRefs("Closes #12"), [12]);
+  assert.deepEqual(closingRefs("close #1"), [1]);
+  assert.deepEqual(closingRefs("closed #2"), [2]);
+  assert.deepEqual(closingRefs("fixes #3"), [3]);
+  assert.deepEqual(closingRefs("fix #4"), [4]);
+  assert.deepEqual(closingRefs("fixed #5"), [5]);
+  assert.deepEqual(closingRefs("resolves #6"), [6]);
+  assert.deepEqual(closingRefs("resolve #7"), [7]);
+  assert.deepEqual(closingRefs("resolved #8"), [8]);
+  // case-insensitive, mid-sentence, several per body
+  assert.deepEqual(closingRefs("This closes #12 and RESOLVES #34, plus fixes #56."), [12, 34, 56]);
+});
+
+test("closingRefs: dedupes and ignores non-references", () => {
+  assert.deepEqual(closingRefs("Closes #12. Also closes #12 again."), [12]);
+  assert.deepEqual(closingRefs("no refs here"), []);
+  assert.deepEqual(closingRefs(null), []);
+  assert.deepEqual(closingRefs(""), []);
+  // plain mentions are not closing keywords
+  assert.deepEqual(closingRefs("see #12 for context"), []);
+  // the URL form is not the #N form the supervisor looks for
+  assert.deepEqual(closingRefs("https://github.com/o/r/issues/12"), []);
+});
+
+// Claim ordering (sortIssuesByOrder): default "updatedAt" honors the
+// operator's ready-label ordering but re-queues issues on any later edit;
+// "createdAt" is edit-immune; "number" is fully deterministic.
+
+test("sortIssuesByOrder: updatedAt (default) — oldest-updated first", () => {
+  const issues = [
+    { number: 3, createdAt: "2024-01-03T00:00:00Z", updatedAt: "2024-03-03T00:00:00Z" },
+    { number: 1, createdAt: "2024-01-01T00:00:00Z", updatedAt: "2024-02-01T00:00:00Z" },
+    { number: 2, createdAt: "2024-01-02T00:00:00Z", updatedAt: "2024-02-15T00:00:00Z" },
+  ];
+  assert.deepEqual(sortIssuesByOrder([...issues]).map((i) => i.number), [1, 2, 3]);
+  assert.deepEqual(sortIssuesByOrder([...issues], "updatedAt").map((i) => i.number), [1, 2, 3]);
+});
+
+test("sortIssuesByOrder: createdAt — immune to body/label edits", () => {
+  const issues = [
+    { number: 2, createdAt: "2024-01-02T00:00:00Z", updatedAt: "2024-03-02T00:00:00Z" },
+    { number: 3, createdAt: "2024-01-03T00:00:00Z", updatedAt: "2024-02-02T00:00:00Z" },
+    { number: 1, createdAt: "2024-01-01T00:00:00Z", updatedAt: "2024-04-01T00:00:00Z" },
+  ];
+  // by createdAt: 1,2,3 — by updatedAt the same set would be 3,2,1
+  assert.deepEqual(sortIssuesByOrder([...issues], "createdAt").map((i) => i.number), [1, 2, 3]);
+});
+
+test("sortIssuesByOrder: number — fully deterministic", () => {
+  const issues = [
+    { number: 10, createdAt: "2024-01-02T00:00:00Z", updatedAt: "2024-02-02T00:00:00Z" },
+    { number: 2, createdAt: "2024-01-03T00:00:00Z", updatedAt: "2024-02-03T00:00:00Z" },
+  ];
+  assert.deepEqual(sortIssuesByOrder([...issues], "number").map((i) => i.number), [2, 10]);
+});
+
+test("sortIssuesByOrder: invalid order falls back to updatedAt", () => {
+  const issues = [
+    { number: 2, createdAt: "2024-01-02T00:00:00Z", updatedAt: "2024-03-02T00:00:00Z" },
+    { number: 1, createdAt: "2024-01-03T00:00:00Z", updatedAt: "2024-02-03T00:00:00Z" },
+  ];
+  assert.deepEqual(sortIssuesByOrder([...issues], "bogus").map((i) => i.number), [1, 2]);
 });
